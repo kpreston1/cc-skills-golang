@@ -6,7 +6,7 @@ license: MIT
 compatibility: Designed for Claude Code or similar AI coding agents, and for projects using Golang.
 metadata:
   author: samber
-  version: "1.1.1"
+  version: "1.1.2"
   openclaw:
     emoji: "🎨"
     homepage: https://github.com/samber/cc-skills-golang
@@ -218,6 +218,7 @@ func Contains[T comparable](slice []T, target T) bool  // not []any
 - **"Reflection is never clear"** — avoid `reflect` unless necessary
 - **Don't abstract prematurely** — extract when the pattern is stable
 - **Minimize public surface** — every exported name is a commitment
+- **Monorepo shared utility packages** — in a monorepo where a single `utils` package is an established cross-service convention (e.g. `app/utils`), using the `utils` name is acceptable. The general rule against generic names (`utils`, `helpers`, `common`) still applies to new packages and single-service code.
 
 ## Parallelizing Code Style Reviews
 

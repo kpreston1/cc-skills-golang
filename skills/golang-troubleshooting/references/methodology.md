@@ -149,7 +149,7 @@ If the information is missing, **ask the user** what monitoring and observabilit
   level:error AND service:myapp AND @timestamp:[now-1h TO now]
   ```
 
-- **OpenTelemetry / Jaeger / Zipkin** — Check distributed traces for latency breakdowns across services, failed spans, and propagation issues.
+- **Datadog APM** — Check distributed traces for latency breakdowns across services, failed spans, and propagation issues.
 
 If the user has an MCP server for any of these tools (Datadog MCP, Grafana MCP, etc.), suggest using it for interactive queries. Otherwise, suggest manual checks via their web UI or CLI.
 

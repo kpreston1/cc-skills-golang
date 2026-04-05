@@ -34,68 +34,48 @@ testify complements Go's `testing` package with readable assertions, mocks, and 
 
 This skill is not exhaustive. Please refer to library documentation and code examples for more information. Context7 can help as a discoverability platform.
 
-## assert vs require
+## require everywhere
 
-Both offer identical assertions. The difference is failure behavior:
+Always use `s.Require()` for all assertions in suite tests — this fails fast on any unexpected state and prevents misleading failures cascading through the rest of the test.
 
-- **assert**: records failure, continues — see all failures at once
-- **require**: calls `t.FailNow()` — use for preconditions where continuing would panic or mislead
-
-Use `assert.New(t)` / `require.New(t)` for readability. Name them `is` and `must`:
-
-```go
-func TestParseConfig(t *testing.T) {
-    is := assert.New(t)
-    must := require.New(t)
-
-    cfg, err := ParseConfig("testdata/valid.yaml")
-    must.NoError(err)    // stop if parsing fails — cfg would be nil
-    must.NotNil(cfg)
-
-    is.Equal("production", cfg.Environment)
-    is.Equal(8080, cfg.Port)
-    is.True(cfg.TLS.Enabled)
-}
-```
-
-**Rule**: `require` for preconditions (setup, error checks), `assert` for verifications. Never mix randomly.
+**Rule**: use `s.Require()` for all assertions — setup, error checks, and verifications alike.
 
 ## Core Assertions
 
-```go
-is := assert.New(t)
+Always call assertions via `s.Require()` in suite tests:
 
+```go
 // Equality
-is.Equal(expected, actual)              // DeepEqual + exact type
-is.NotEqual(unexpected, actual)
-is.EqualValues(expected, actual)        // converts to common type first
-is.EqualExportedValues(expected, actual)
+s.Require().Equal(expected, actual)
+s.Require().NotEqual(unexpected, actual)
+s.Require().EqualValues(expected, actual)        // converts to common type first
+s.Require().EqualExportedValues(expected, actual)
 
 // Nil / Bool / Emptiness
-is.Nil(obj)                  is.NotNil(obj)
-is.True(cond)                is.False(cond)
-is.Empty(collection)         is.NotEmpty(collection)
-is.Len(collection, n)
+s.Require().Nil(obj)               s.Require().NotNil(obj)
+s.Require().True(cond)             s.Require().False(cond)
+s.Require().Empty(collection)      s.Require().NotEmpty(collection)
+s.Require().Len(collection, n)
 
 // Contains (strings, slices, map keys)
-is.Contains("hello world", "world")
-is.Contains([]int{1, 2, 3}, 2)
-is.Contains(map[string]int{"a": 1}, "a")
+s.Require().Contains("hello world", "world")
+s.Require().Contains([]int{1, 2, 3}, 2)
+s.Require().Contains(map[string]int{"a": 1}, "a")
 
 // Comparison
-is.Greater(actual, threshold)     is.Less(actual, ceiling)
-is.Positive(val)                  is.Negative(val)
-is.Zero(val)
+s.Require().Greater(actual, threshold)     s.Require().Less(actual, ceiling)
+s.Require().Positive(val)                  s.Require().Negative(val)
+s.Require().Zero(val)
 
 // Errors
-is.Error(err)                     is.NoError(err)
-is.ErrorIs(err, ErrNotFound)      // walks error chain
-is.ErrorAs(err, &target)
-is.ErrorContains(err, "not found")
+s.Require().Error(err)                     s.Require().NoError(err)
+s.Require().ErrorIs(err, ErrNotFound)      // walks error chain
+s.Require().ErrorAs(err, &target)
+s.Require().ErrorContains(err, "not found")
 
 // Type
-is.IsType(&User{}, obj)
-is.Implements((*io.Reader)(nil), obj)
+s.Require().IsType(&User{}, obj)
+s.Require().Implements((*IReader)(nil), obj)
 ```
 
 **Argument order**: always `(expected, actual)` — swapping produces confusing diff output.
@@ -103,20 +83,20 @@ is.Implements((*io.Reader)(nil), obj)
 ## Advanced Assertions
 
 ```go
-is.ElementsMatch([]string{"b", "a", "c"}, result)             // unordered comparison
-is.InDelta(3.14, computedPi, 0.01)                            // float tolerance
-is.JSONEq(`{"name":"alice"}`, `{"name": "alice"}`)             // ignores whitespace/key order
-is.WithinDuration(expected, actual, 5*time.Second)
-is.Regexp(`^user-[a-f0-9]+$`, userID)
+s.Require().ElementsMatch([]string{"b", "a", "c"}, result)             // unordered comparison
+s.Require().InDelta(3.14, computedPi, 0.01)                            // float tolerance
+s.Require().JSONEq(`{"name":"alice"}`, `{"name": "alice"}`)             // ignores whitespace/key order
+s.Require().WithinDuration(expected, actual, 5*time.Second)
+s.Require().Regexp(`^user-[a-f0-9]+$`, userID)
 
 // Async polling
-is.Eventually(func() bool {
+s.Require().Eventually(func() bool {
     status, _ := client.GetJobStatus(jobID)
     return status == "completed"
 }, 5*time.Second, 100*time.Millisecond)
 
 // Async polling with rich assertions
-is.EventuallyWithT(func(c *assert.CollectT) {
+s.Require().EventuallyWithT(func(c *assert.CollectT) {
     resp, err := client.GetOrder(orderID)
     assert.NoError(c, err)
     assert.Equal(c, "shipped", resp.Status)
@@ -162,8 +142,8 @@ func (s *TokenServiceSuite) SetupTest() {
 func (s *TokenServiceSuite) TestGenerate_ReturnsValidToken() {
     s.store.On("Save", mock.Anything, mock.Anything).Return(nil)
     token, err := s.service.Generate("user-42")
-    s.NoError(err)
-    s.NotEmpty(token)
+    s.Require().NoError(err)
+    s.Require().NotEmpty(token)
     s.store.AssertExpectations(s.T())
 }
 
@@ -173,16 +153,16 @@ func TestTokenServiceSuite(t *testing.T) {
 }
 ```
 
-Suite methods like `s.Equal()` behave like `assert`. For require: `s.Require().NotNil(obj)`.
+Always use `s.Require()` for all assertions — never use bare `s.Equal()` or `s.NoError()` as they continue on failure and can produce misleading results.
 
 ## Common Mistakes
 
 - **Forgetting `AssertExpectations(t)`** — mock expectations silently pass without verification
-- **`is.Equal(ErrNotFound, err)`** — fails on wrapped errors. Use `is.ErrorIs` to walk the chain
+- **`s.Require().Equal(ErrNotFound, err)`** — fails on wrapped errors. Use `s.Require().ErrorIs` to walk the chain
 - **Swapped argument order** — testify assumes `(expected, actual)`. Swapping produces backwards diffs
-- **`assert` for guards** — test continues after failure and panics on nil dereference. Use `require`
+- **Using bare `s.Equal()` / `s.NoError()`** — these behave like `assert` and continue on failure, masking downstream panics. Always use `s.Require()`
 - **Missing `suite.Run()`** — without the launcher function, zero tests execute silently
-- **Comparing pointers** — `is.Equal(ptr1, ptr2)` compares addresses. Dereference or use `EqualExportedValues`
+- **Comparing pointers** — `s.Require().Equal(ptr1, ptr2)` compares addresses. Dereference or use `EqualExportedValues`
 
 ## Linters
 

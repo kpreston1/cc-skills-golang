@@ -6,7 +6,7 @@ license: MIT
 compatibility: Designed for Claude Code or similar AI coding agents, and for projects using Golang.
 metadata:
   author: samber
-  version: "1.1.1"
+  version: "1.1.2"
   openclaw:
     emoji: "🏷️"
     homepage: https://github.com/samber/cc-skills-golang
@@ -37,7 +37,7 @@ To ignore a rule, just add a comment to the code.
 | File | lowercase, underscores OK | `user_handler.go` |
 | Exported name | UpperCamelCase | `ReadAll`, `HTTPClient` |
 | Unexported | lowerCamelCase | `parseToken`, `userCount` |
-| Interface | method name + `-er` | `Reader`, `Closer`, `Stringer` |
+| Interface | `I` prefix + noun | `ICache`, `IRepository`, `IReader` |
 | Struct | MixedCaps noun | `Request`, `FileHeader` |
 | Constant | MixedCaps (not ALL_CAPS) | `MaxRetries`, `defaultTimeout` |
 | Receiver | 1-2 letter abbreviation | `func (s *Server)`, `func (b *Buffer)` |
@@ -119,7 +119,7 @@ For complete rules, examples, and rationale, see:
 
 - **[Functions, Methods & Options](./references/functions-methods.md)** — Getter/setter patterns (Go omits `Get` so `user.Name()` reads naturally), constructor conventions (`New` or `NewTypeName`), named returns (for documentation only), format function suffixes (`Errorf`, `Wrapf`), and functional options (`WithPort`, `WithLogger`).
 
-- **[Types, Constants & Errors](./references/types-errors.md)** — Interface naming (`Reader`, `Closer` suffix with `-er`), struct naming (nouns, MixedCaps), constants (MixedCaps, not ALL_CAPS), enums (type name prefix like `StatusReady`), sentinel errors (`ErrNotFound` variables), error types (`PathError` suffix), and error message conventions (lowercase, no punctuation).
+- **[Types, Constants & Errors](./references/types-errors.md)** — Interface naming (`I` prefix like `ICache`, `IRepository`), struct naming (nouns, MixedCaps), constants (MixedCaps, not ALL_CAPS), enums (type name prefix like `StatusReady`), sentinel errors (`ErrNotFound` variables), error types (`PathError` suffix), and error message conventions (lowercase, no punctuation).
 
 - **[Test Naming](./references/testing.md)** — Test function naming (`TestFunctionName`), table-driven test field conventions (`input`, `expected`), test helper naming, and subcase naming patterns.
 
@@ -131,7 +131,7 @@ For complete rules, examples, and rationale, see:
 | `GetName()` getter | Go omits `Get` because `user.Name()` reads naturally at call sites. But `Is`/`Has`/`Can` prefixes are kept for boolean predicates: `IsHealthy() bool` not `Healthy() bool` |
 | `Url`, `Http`, `Json` acronyms | Mixed-case acronyms create ambiguity (`HttpsUrl` — is it `Https+Url`?). Use all caps or all lower |
 | `this` or `self` receiver | Go methods are called frequently — use 1-2 letter abbreviation (`s` for `Server`) to reduce visual noise |
-| `util`, `helper` packages | These names say nothing about content — use specific names that describe the abstraction |
+| `util`, `helper` packages | These names say nothing about content — use specific names that describe the abstraction. Exception: a monorepo-wide `utils` package that is an established cross-service convention is acceptable (see `samber/cc-skills-golang@golang-code-style` Philosophy section). |
 | `http.HTTPClient` stuttering | Package name is always present at call site — `http.Client` avoids reading "HTTP" twice |
 | `user.NewUser()` constructor | Single primary type uses `New()` — `user.New()` avoids repeating the type name |
 | `connected bool` field | Bare adjective is ambiguous — use `isConnected` so the field reads as a true/false question |

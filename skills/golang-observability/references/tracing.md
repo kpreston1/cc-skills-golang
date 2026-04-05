@@ -1,198 +1,222 @@
-# Distributed Tracing with OpenTelemetry
+# Distributed Tracing with dd-trace-go v2
 
-→ See `samber/cc-skills-golang@golang-context` skill for propagating context across service boundaries. → See `samber/cc-skills-golang@golang-samber-oops` skill for structured errors with stack traces in spans.
+→ See `samber/cc-skills-golang@golang-context` skill for propagating context across service boundaries.
 
-When using the OpenTelemetry Go SDK, refer to the library's official documentation for up-to-date API signatures and examples.
+When using `dd-trace-go`, refer to the [official documentation](https://docs.datadoghq.com/tracing/trace_collection/automatic_instrumentation/dd_libraries/go/) for up-to-date API signatures.
 
 ## Why Tracing
 
-When a request crosses multiple services, logs from each service are isolated. Tracing connects them: a single trace shows the full request path with timing for every operation. This is how you answer "why was this request slow?" in a microservices architecture.
+When a request crosses multiple services, logs from each service are isolated. Tracing connects them: a single trace shows the full request path with timing for every operation. Datadog APM lets you answer "why was this request slow?" across any number of services.
 
-## OTel SDK Setup
+## APM Setup
 
-Set up the TracerProvider early in your application. On new projects, do this first — then add spans everywhere incrementally.
+Call `utils.StartObservability()` at application startup. It reads configuration from environment variables — no code-level configuration needed:
+
+| Env var | Purpose | Example |
+| --- | --- | --- |
+| `DD_SERVICE` | Service name shown in Datadog APM | `order-service` |
+| `DD_ENV` | Deployment environment | `production`, `staging` |
+| `DD_VERSION` | Service version for deployment tracking | `1.4.2` |
+| `DD_AGENT_HOST` | Datadog Agent host | `localhost` (default) |
+| `DD_TRACE_ENABLED` | Disable tracing without code changes | `false` |
 
 ```go
-import (
-    "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-    "go.opentelemetry.io/otel/sdk/resource"
-    sdktrace "go.opentelemetry.io/otel/sdk/trace"
-    semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-)
-
-func initTracer(ctx context.Context) (func(), error) {
-    exporter, err := otlptracegrpc.New(ctx)
-    if err != nil {
-        return nil, fmt.Errorf("creating OTLP exporter: %w", err)
-    }
-
-    res, err := resource.New(ctx,
-        resource.WithAttributes(
-            semconv.ServiceNameKey.String("my-service"),
-            semconv.ServiceVersionKey.String("1.0.0"),
-        ),
-    )
-    if err != nil {
-        return nil, fmt.Errorf("creating resource: %w", err)
-    }
-
-    tp := sdktrace.NewTracerProvider(
-        sdktrace.WithBatcher(exporter),
-        sdktrace.WithResource(res),
-    )
-    otel.SetTracerProvider(tp)
-
-    shutdown := func() {
-        _ = tp.Shutdown(context.Background())
-    }
-    return shutdown, nil
+func main() {
+    utils.StartObservability()
+    defer utils.ShutdownObservability()
 }
 ```
 
 ## Creating Spans
 
-Every meaningful operation should have a span. Think of spans as the building blocks of a trace — they show where time was spent.
+### Service / method spans
+
+`utils.StartSpan(ctx)` creates a span named after the calling function automatically. Use it for all service methods, repository methods, and any meaningful operation:
 
 ```go
-import "go.opentelemetry.io/otel"
-
-var tracer = otel.Tracer("myapp/order-service")
-
 func (s *OrderService) Create(ctx context.Context, req CreateOrderRequest) (*Order, error) {
-    ctx, span := tracer.Start(ctx, "OrderService.Create")
-    defer span.End()
-
-    // Add attributes that help with debugging
-    span.SetAttributes(
-        attribute.String("order.payment_method", req.PaymentMethod),
-        attribute.Float64("order.amount", req.Amount),
-    )
+    span := utils.StartSpan(ctx)
+    defer span.Finish()
 
     order, err := s.repo.Insert(ctx, req.ToOrder())
     if err != nil {
-        span.RecordError(err)
-        span.SetStatus(codes.Error, err.Error())
-        return nil, fmt.Errorf("inserting order: %w", err)
+        utils.RecordSpanError(span, err)
+        return nil, errors.Wrap(err, "inserting order")
     }
 
     return order, nil
 }
 
 func (r *OrderRepo) Insert(ctx context.Context, order Order) (*Order, error) {
-    ctx, span := tracer.Start(ctx, "OrderRepo.Insert")
-    defer span.End()
+    span := utils.StartSpan(ctx)
+    defer span.Finish()
 
     _, err := r.db.ExecContext(ctx, "INSERT INTO orders ...", order.ID)
     if err != nil {
-        span.RecordError(err)
-        span.SetStatus(codes.Error, err.Error())
-        return nil, fmt.Errorf("exec insert: %w", err)
+        utils.RecordSpanError(span, err)
+        return nil, errors.Wrap(err, "exec insert")
     }
     return &order, nil
 }
 ```
 
-**Where to add spans** — spans MUST be created for:
+### Adding custom tags to spans
 
-- Every service method (business logic layer)
-- Every database query
-- Every external API call
-- Every message queue publish/consume
-- Any operation that takes measurable time or could fail
-
-## HTTP Middleware with `otelhttp`
-
-Automatically creates spans for incoming and outgoing HTTP requests:
+When you need to attach request-scoped metadata (user ID, order ID, tenant) to a span for filtering in Datadog:
 
 ```go
-import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-
-// Incoming requests — wrap your handler
-mux.Handle("/orders", otelhttp.NewHandler(orderHandler, "CreateOrder"))
-
-// Outgoing requests — HTTP clients MUST use otelhttp for automatic span propagation
-client := &http.Client{
-    Transport: otelhttp.NewTransport(http.DefaultTransport),
-}
-```
-
-## Span Status and Recording Errors
-
-```go
-import (
-    "go.opentelemetry.io/otel/codes"
-)
-
-// On success — no need to set status (Unset is fine)
-
-// On error — MUST call both RecordError() and SetStatus(Error)
-if err != nil {
-    span.RecordError(err)
-    span.SetStatus(codes.Error, "operation failed")
-    return err
-}
-```
-
-## Structured Errors with `samber/oops`
-
-Standard Go errors lose critical debugging information: there's no stack trace, no structured context, and no way to attach request-scoped metadata. When an error surfaces in a trace, you see `"connection refused"` but not where it originated or which user/tenant was affected.
-
-[`samber/oops`](https://github.com/samber/oops) is a drop-in error library that fills these gaps. Every `oops` error carries a stack trace, structured attributes, and integrates naturally with both OpenTelemetry spans and `slog`:
-
-```go
-import "github.com/samber/oops"
+import "github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 
 func (s *OrderService) Create(ctx context.Context, req CreateOrderRequest) (*Order, error) {
-    ctx, span := tracer.Start(ctx, "OrderService.Create")
-    defer span.End()
+    span := utils.StartSpan(ctx)
+    defer span.Finish()
 
-    order, err := s.repo.Insert(ctx, req.ToOrder())
-    if err != nil {
-        // oops wraps the error with stack trace, structured context, and error code
-        return nil, oops.
-            In("order-service").
-            Code("order_insert_failed").
-            With("order_id", req.OrderID).
-            With("user_id", req.UserID).
-            Wrapf(err, "inserting order")
-    }
+    // Add searchable tags visible in Datadog APM
+    span.SetTag("order.payment_method", req.PaymentMethod)
+    span.SetTag("order.amount", req.Amount)
+    span.SetTag("user.id", req.UserID)
 
-    return order, nil
+    // ...
 }
 ```
 
-When this error is logged or recorded on a span, you get the full stack trace, the domain (`order-service`), an error code (`order_insert_failed`), and structured attributes (`order_id`, `user_id`) — all machine-parseable and searchable in your observability platform.
+### Where to add spans
 
-`oops` errors work with `span.RecordError()`, `errors.Is`/`errors.As`, and `slog` — see the `samber/cc-skills-golang@golang-error-handling` and `samber/cc-skills-golang@golang-samber-oops` skills for full usage patterns.
+Spans MUST be created for:
 
-## Trace Sampling
+- Every service method (business logic layer)
+- Every repository/database method
+- Every external API call
+- Every message queue publish/consume operation
+- Any operation that is slow or could fail
 
-In high-throughput services, tracing every request is expensive. Use sampling to control the volume:
+## HTTP Tracing
+
+### Echo router
+
+Use `utils.NewTracedEchoRouter` — it wraps Echo with `echotrace.Wrap`, which:
+- Creates a span for every incoming request
+- Registers routes in the Datadog API Catalog before traffic arrives
+- Excludes OPTIONS, HEAD, and `/healthz` by default
 
 ```go
-tp := sdktrace.NewTracerProvider(
-    // Sample 10% of traces in production
-    sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.1)),
-    sdktrace.WithBatcher(exporter),
-    sdktrace.WithResource(res),
-)
+e := echo.New()
+e = utils.NewTracedEchoRouter(e, utils.DefaultTracedEchoRouterConfig())
+
+// Custom ignore rules:
+e = utils.NewTracedEchoRouter(e, utils.TracedEchoRouterConfig{
+    IgnoredMethods: utils.MethodSet(http.MethodOptions, http.MethodHead),
+})
 ```
 
-For more nuanced control, use `sdktrace.ParentBased()` to respect the parent's sampling decision — this keeps traces complete across service boundaries.
+### Outbound HTTP client
 
-## Cost of Tracing
+Use `utils.NewTracedHTTPClient` — it wraps the client with `httptrace.WrapClient`:
 
-Tracing can be one of the most expensive observability signals. Every span generates data that must be serialized, transmitted, stored, and indexed. In a microservices architecture, a single user request can produce dozens or hundreds of spans across services.
+```go
+httpClient := utils.NewTracedHTTPClient(&http.Client{
+    Timeout: 10 * time.Second,
+})
 
-**Cost factors:**
+// The client automatically creates child spans for every request,
+// named by method + host (e.g. "GET api.stripe.com")
+resp, err := httpClient.Get("https://api.stripe.com/v1/charges")
+```
 
-- **Span volume** — a service handling 10k req/s with 5 spans per request generates 50k spans/s. At 100% sampling, this is enormous.
-- **Span attributes** — each attribute adds to the payload size. Large attributes (request/response bodies) multiply cost.
-- **Storage and indexing** — tracing backends (Jaeger, Tempo, Datadog) charge by volume. Unsampled traces can easily become the largest line item in your observability bill.
+## Database Tracing
 
-**Mitigation:**
+Use `utils.NewTracedDBConnection` — it registers the `pgx` driver with `sqltrace` and opens a traced connection. Every `QueryContext`, `ExecContext`, and `QueryRowContext` call automatically creates a child span:
 
-- Use sampling (see above) — start with 10% (`TraceIDRatioBased(0.1)`) and adjust based on traffic volume and budget
-- For high-throughput services, consider head-based sampling (decide at trace start) or tail-based sampling (decide after the trace completes, keeping only interesting traces like errors or slow requests)
-- Avoid attaching large payloads as span attributes — log them instead and correlate via trace_id
+```go
+db, err := utils.NewTracedDBConnection(os.Getenv("DATABASE_URL"))
+if err != nil {
+    return errors.Wrap(err, "opening db")
+}
+
+// This query automatically appears as a child span in Datadog
+rows, err := db.QueryContext(ctx, "SELECT * FROM orders WHERE user_id = $1", userID)
+```
+
+**Important:** Always use `*Context` variants (`QueryContext`, `ExecContext`, `QueryRowContext`). Non-context methods do not carry the span and produce gaps in traces.
+
+## Redis / Valkey Tracing
+
+Use `utils.NewTracedCacheConnection` — it wraps the Redis client with `redistrace.WrapClient`:
+
+```go
+// Without TLS
+cache, err := utils.NewTracedCacheConnection(os.Getenv("REDIS_URL"), "")
+
+// With custom CA cert (e.g. self-signed for Valkey)
+cache, err := utils.NewTracedCacheConnection(os.Getenv("REDIS_URL"), "/etc/ssl/valkey-ca.pem")
+
+// Redis commands appear as child spans automatically
+val, err := cache.Get(ctx, "user:123").Result()
+```
+
+## AWS SDK Tracing
+
+Use `utils.NewTracedAWS` — it appends `awstrace` middleware to the AWS config. All AWS API calls (S3, SQS, DynamoDB, etc.) appear as child spans:
+
+```go
+awsCfg, err := utils.NewTracedAWS(ctx)
+if err != nil {
+    return errors.Wrap(err, "loading aws config")
+}
+
+s3Client := s3.NewFromConfig(awsCfg)
+// S3 calls automatically appear as child spans
+```
+
+## Distributed Tracing Across Async Boundaries
+
+When traces cross an async boundary (message queue, scheduled job, webhook), the Go context chain is broken. Use `utils.MarshalSpan` to serialize the trace context into a string, carry it with the message, and `utils.ResumeSpanFromTrace` to reconnect on the other side:
+
+```go
+// Producer — serialize current span into the message
+func (s *OrderService) PublishEvent(ctx context.Context, order Order) error {
+    span := utils.StartSpan(ctx)
+    defer span.Finish()
+
+    event := OrderEvent{
+        Order:   order,
+        DDTrace: utils.MarshalSpan(ctx), // carries trace_id + span_id
+    }
+    return s.publisher.Publish(event)
+}
+
+// Consumer — resume trace from message
+func (w *Worker) HandleEvent(event OrderEvent) error {
+    span, ctx := utils.ResumeSpanFromTrace(context.Background(), event.DDTrace)
+    defer span.Finish()
+
+    // child spans will appear under the original producer trace in Datadog
+    return w.fulfill(ctx, event.Order)
+}
+```
+
+## Span Error Recording
+
+`utils.RecordSpanError(span, err)` marks the span as errored in Datadog. Always call it before returning an error from a spanned function:
+
+```go
+span := utils.StartSpan(ctx)
+defer span.Finish()
+
+result, err := s.externalAPI.Call(ctx, req)
+if err != nil {
+    utils.RecordSpanError(span, err) // span shows as red in Datadog APM
+    return nil, errors.Wrap(err, "external api call")
+}
+```
+
+## Common Mistakes
+
+| Mistake | Fix |
+| --- | --- |
+| Forgot `defer span.Finish()` | Span never sent to Datadog — always defer immediately after creating |
+| Raw `sql.Open("pgx", dsn)` | No DB query tracing — use `utils.NewTracedDBConnection` |
+| Raw `redis.NewClient(opts)` | No cache tracing — use `utils.NewTracedCacheConnection` |
+| Raw `http.Client{}` | No outbound HTTP tracing — use `utils.NewTracedHTTPClient` |
+| `db.Query(...)` instead of `db.QueryContext(ctx, ...)` | Context not propagated, span not linked |
+| Context dropped mid-call-chain | Trace chain broken — propagate `ctx` through every function |

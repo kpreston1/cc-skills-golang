@@ -23,7 +23,7 @@ fmt.Println(result) // using result without checking err
 // ✓ Good — always check before using other return values
 data, err := os.ReadFile("config.yaml")
 if err != nil {
-    return fmt.Errorf("reading config: %w", err)
+    return errors.Wrap(err, "reading config")
 }
 ```
 
@@ -34,11 +34,11 @@ Error strings MUST be lowercase, without trailing punctuation, and should not du
 ```go
 // ✗ Bad — capitalized, punctuation, redundant prefix
 return errors.New("Failed to connect to database.")
-return fmt.Errorf("UserService: failed to fetch user: %w", err)
+return errors.Wrap(err, "UserService: failed to fetch user")
 
 // ✓ Good — lowercase, no punctuation, concise
 return errors.New("connection refused")
-return fmt.Errorf("fetching user: %w", err)
+return errors.Wrap(err, "fetching user")
 ```
 
 When errors are wrapped through multiple layers, each layer adds its own prefix. The result reads like a chain:
@@ -52,23 +52,53 @@ creating order: charging card: connecting to payment gateway: connection refused
 ### `errors.New` — static error messages
 
 ```go
+import "github.com/pkg/errors"
+
 var ErrNotFound = errors.New("not found")
 var ErrUnauthorized = errors.New("unauthorized")
 ```
 
-### `fmt.Errorf` — dynamic error messages
+### `errors.Wrap` / `errors.Wrapf` — wrap with context and stack trace
+
+Use `errors.Wrap` from `github.com/pkg/errors` to attach a message and capture a stack trace at the point of origin.
 
 ```go
-import "github.com/samber/oops"
+import "github.com/pkg/errors"
 
-// ✗ Avoid — high-cardinality message, each user/tenant combo is a unique string
-return fmt.Errorf("user %s not found in tenant %s", userID, tenantID)
+// ✓ Good — wraps with context, captures stack trace
+return errors.Wrap(err, "fetching user")
 
-// ✓ Prefer — static message, variable data as structured attributes
-return oops.With("user_id", userID).With("tenant_id", tenantID).Errorf("user not found")
+// ✓ Good — wraps with formatted context
+return errors.Wrapf(err, "fetching user %s", userID)
 ```
 
-See [Low-Cardinality Error Messages](#low-cardinality-error-messages) for why this matters.
+### `errors.WithStack` — stack trace only, no new message
+
+Use when you want to capture a stack trace without adding a new message layer:
+
+```go
+// ✓ Good — adds stack trace to a sentinel or stdlib error
+return errors.WithStack(sql.ErrNoRows)
+```
+
+### `errors.WithMessage` — message only, no new stack trace
+
+Use when adding context mid-chain where a stack trace was already captured:
+
+```go
+// ✓ Good — adds context without duplicating stack
+return errors.WithMessage(err, "retrying after timeout")
+```
+
+### `errors.Cause` — unwrap to root cause
+
+Use `errors.Cause` to get the original unwrapped error:
+
+```go
+if errors.Cause(err) == sql.ErrNoRows {
+    return ErrNotFound
+}
+```
 
 ### Decision table: which error strategy to use
 
@@ -76,31 +106,25 @@ See [Low-Cardinality Error Messages](#low-cardinality-error-messages) for why th
 | --- | --- | --- |
 | Caller needs to match a specific condition | Sentinel error (`errors.New` as package var) | `var ErrNotFound = errors.New("not found")` |
 | Caller needs to extract structured data | Custom error type | `type ValidationError struct { Field, Msg string }` |
+| Wrapping an error with context at a layer boundary | `errors.Wrap` / `errors.Wrapf` | `errors.Wrap(err, "fetching user")` |
+| Adding stack trace to an error that has none | `errors.WithStack` | `errors.WithStack(sql.ErrNoRows)` |
 | Error is purely informational, not matched on | `fmt.Errorf` or `errors.New` | `fmt.Errorf("connecting to %s: %w", addr, err)` |
-| Need stack traces, user context, structured attrs | `samber/oops` | See [Why Use samber/oops](./error-handling.md#why-use-samberoops) |
 
 ## Low-Cardinality Error Messages
 
 APM and log aggregation tools (Datadog, Loki, Sentry) group errors by message. When you interpolate variable data into error strings, every unique combination creates a separate group — dashboards become unusable and alerting breaks.
 
 ```go
-import "github.com/samber/oops"
-
 // ✗ Bad — high cardinality: each file/line combo creates a unique error message
-fmt.Errorf("error in %s at line %d of the csv", csvPath, line)
+errors.Wrapf(err, "error in %s at line %d of the csv", csvPath, line)
 
-// ✓ Good (stdlib) — static error, structured attributes at the log site
-err := errors.New("csv parsing error")
+// ✓ Good — static message, structured attributes at the log site
+err := errors.Wrap(err, "csv parsing error")
 // ... later, at the logging boundary:
 slog.Error("csv parsing failed", "error", err, "csv_file_path", csvPath, "csv_file_line", line)
-
-// ✓ Good (samber/oops, external dependency) — attributes travel with the error
-oops.With("csv_file_path", csvPath).With("csv_file_line", line).Errorf("csv parsing error")
 ```
 
-The stdlib approach works but scatters context: the error travels up the stack and the handler logging it may no longer have access to the variable data. `samber/oops` (external dependency `github.com/samber/oops`) solves this by attaching structured attributes directly to the error, so they're available wherever the error is eventually logged.
-
-**Static wrapping prefixes are fine** — `fmt.Errorf("fetching user: %w", err)` is low-cardinality because the prefix never changes. What to avoid is interpolating IDs, paths, counts, or other variable data into the message itself.
+**Static wrapping prefixes are fine** — `errors.Wrap(err, "fetching user")` is low-cardinality because the prefix never changes. What to avoid is interpolating IDs, paths, counts, or other variable data into the message itself.
 
 ## Custom Error Types
 

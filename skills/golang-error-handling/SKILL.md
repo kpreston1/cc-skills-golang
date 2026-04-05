@@ -1,6 +1,6 @@
 ---
 name: golang-error-handling
-description: "Idiomatic Golang error handling — creation, wrapping with %w, errors.Is/As, errors.Join, custom error types, sentinel errors, panic/recover, the single handling rule, structured logging with slog, HTTP request logging middleware, and samber/oops for production errors. Built to make logs usable at scale with log aggregation 3rd-party tools. Apply when creating, wrapping, inspecting, or logging errors in Go code."
+description: "Idiomatic Golang error handling — creation, wrapping with pkg/errors, errors.Is/As, errors.Join, custom error types, sentinel errors, panic/recover, the single handling rule, and structured logging. Built to make logs usable at scale. Apply when creating, wrapping, inspecting, or logging errors in Go code."
 user-invocable: false
 license: MIT
 compatibility: Designed for Claude Code or similar AI coding agents, and for projects using Golang.
@@ -34,7 +34,7 @@ This skill guides the creation of robust, idiomatic error handling in Go applica
 ## Best Practices Summary
 
 1. **Returned errors MUST always be checked** — NEVER discard with `_`
-2. **Errors MUST be wrapped with context** using `fmt.Errorf("{context}: %w", err)`
+2. **Errors MUST be wrapped with context** using `errors.Wrap(err, "context")` or `errors.Wrapf(err, "context: %s", val)` from `github.com/pkg/errors`
 3. **Error strings MUST be lowercase**, without trailing punctuation
 4. **Use `%w` internally, `%v` at system boundaries** to control error chain exposure
 5. **MUST use `errors.Is` and `errors.As`** instead of direct comparison or type assertion
@@ -43,19 +43,19 @@ This skill guides the creation of robust, idiomatic error handling in Go applica
 8. **Use sentinel errors** for expected conditions, custom types for carrying data
 9. **NEVER use `panic` for expected error conditions** — reserve for truly unrecoverable states
 10. **SHOULD use `slog`** (Go 1.21+) for structured error logging — not `fmt.Println` or `log.Printf`
-11. **Use `samber/oops`** for production errors needing stack traces, user/tenant context, or structured attributes
+11. **Use `errors.WithStack`** to attach stack traces when creating errors at the origin — `github.com/pkg/errors` propagates the stack through the chain automatically
 12. **Log HTTP requests** with structured middleware capturing method, path, status, and duration
 13. **Use log levels** to indicate error severity
 14. **Never expose technical errors to users** — translate internal errors to user-friendly messages, log technical details separately
-15. **Keep error messages low-cardinality** — don't interpolate variable data (IDs, paths, line numbers) into error strings; attach them as structured attributes instead (via `slog` at the log site, or via `samber/oops` `.With()` on the error itself) so APM/log aggregators (Datadog, Loki, Sentry) can group errors properly
+15. **Keep error messages low-cardinality** — don't interpolate variable data (IDs, paths, line numbers) into error strings; attach them as structured attributes at the log site with `slog` so APM/log aggregators can group errors properly
 
 ## Detailed Reference
 
-- **[Error Creation](./references/error-creation.md)** — How to create errors that tell the story: error messages should be lowercase, no punctuation, and describe what happened without prescribing action. Covers sentinel errors (one-time preallocation for performance), custom error types (for carrying rich context), and the decision table for which to use when.
+- **[Error Creation](./references/error-creation.md)** — How to create errors that tell the story: error messages should be lowercase, no punctuation, and describe what happened without prescribing action. Covers sentinel errors, custom error types, and `github.com/pkg/errors` for stack traces.
 
-- **[Error Wrapping and Inspection](./references/error-wrapping.md)** — Why `fmt.Errorf("{context}: %w", err)` beats `fmt.Errorf("{context}: %v", err)` (chains vs concatenation). How to inspect chains with `errors.Is`/`errors.As` for type-safe error handling, and `errors.Join` for combining independent errors.
+- **[Error Wrapping and Inspection](./references/error-wrapping.md)** — Why `errors.Wrap(err, "context")` from `github.com/pkg/errors` beats bare `fmt.Errorf`. How to inspect chains with `errors.Is`/`errors.As` for type-safe error handling, and `errors.Join` for combining independent errors.
 
-- **[Error Handling Patterns and Logging](./references/error-handling.md)** — The single handling rule: errors are either logged OR returned, NEVER both (prevents duplicate logs cluttering aggregators). Panic/recover design, `samber/oops` for production errors, and `slog` structured logging integration for APM tools.
+- **[Error Handling Patterns and Logging](./references/error-handling.md)** — The single handling rule: errors are either logged OR returned, NEVER both. Panic/recover design, and `slog` structured logging integration.
 
 ## Parallelizing Error Handling Audits
 
@@ -69,18 +69,12 @@ When auditing error handling across a large codebase, use up to 5 parallel sub-a
 
 ## Cross-References
 
-- → See `samber/cc-skills-golang@golang-samber-oops` for full samber/oops API, builder patterns, and logger integration
 - → See `samber/cc-skills-golang@golang-observability` for structured logging setup, log levels, and request logging middleware
 - → See `samber/cc-skills-golang@golang-safety` for nil interface trap and nil error comparison pitfalls
 - → See `samber/cc-skills-golang@golang-naming` for error naming conventions (ErrNotFound, PathError)
 
 ## References
 
-- [lmittmann/tint](https://github.com/lmittmann/tint)
-- [samber/oops](https://github.com/samber/oops)
-- [samber/slog-multi](https://github.com/samber/slog-multi)
-- [samber/slog-sampling](https://github.com/samber/slog-sampling)
-- [samber/slog-formatter](https://github.com/samber/slog-formatter)
-- [samber/slog-http](https://github.com/samber/slog-http)
-- [samber/slog-sentry](https://github.com/samber/slog-sentry)
+- [github.com/pkg/errors](https://github.com/pkg/errors)
+- [pkg.go.dev/github.com/pkg/errors](https://pkg.go.dev/github.com/pkg/errors)
 - [log/slog package](https://pkg.go.dev/log/slog)

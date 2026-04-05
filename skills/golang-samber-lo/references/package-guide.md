@@ -157,9 +157,6 @@ Start with lo.Map/Filter/Reduce (immutable, safe)
   │
   ├─ Chaining 3+ transforms with intermediate allocations?
   │    └─ Yes + Go 1.23+ → Switch to loi (lazy iterators)
-  │
-  └─ Need reactive/streaming over infinite events?
-       └─ Yes → Use samber/ro instead (different library)
 ```
 
 ## Comparison Table

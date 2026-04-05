@@ -6,23 +6,21 @@ Tools and techniques for **temporary deep-dive performance investigation** — n
 
 Before diving into profiles, set up the environment to collect high-resolution data:
 
-1. **Reduce Prometheus scrape interval** to <=10s on the target instance (normally 15-30s). More data points during a short investigation window reveal patterns that 30s intervals miss. Revert after investigation.
-
-2. **Enable pprof** via environment variable — no recompile needed:
+1. **Enable pprof** via environment variable — no recompile needed:
 
    ```bash
    kubectl set env deployment/my-service PPROF_ENABLED=true
    kubectl rollout restart deployment/my-service
    ```
 
-3. **Enable continuous profiling** on the target instance only — not fleet-wide. Pyroscope/Parca on a single instance is manageable; on 50 replicas it overwhelms the backend.
+2. **Enable Datadog Continuous Profiler** on the target instance only — not fleet-wide. Fleet-wide continuous profiling has cost and overhead implications; a single instance is enough for investigation.
 
    ```bash
-   kubectl set env deployment/my-service PYROSCOPE_ENABLED=true
+   kubectl set env deployment/my-service DD_PROFILING_ENABLED=true
    kubectl rollout restart deployment/my-service
    ```
 
-4. **Enable debug logging** via env var if needed — but only on the target instance. Debug logging has significant throughput impact:
+3. **Enable debug logging** via env var if needed — but only on the target instance. Debug logging has significant throughput impact:
 
    ```bash
    kubectl set env deployment/my-service LOG_LEVEL=debug
@@ -31,110 +29,131 @@ Before diving into profiles, set up the environment to collect high-resolution d
 
 **Key principle:** all costly debug features (pprof HTTP, continuous profiling, debug log level, trace collection) SHOULD be configurable via environment variables. This allows instant toggle without recompile. Design your application to support this from day one.
 
-## Prometheus Go Runtime Collector
+## Datadog Go Runtime Metrics
 
-The `prometheus/client_golang` library automatically registers collectors that expose Go runtime metrics. These are invaluable during investigation sessions — they provide a time-series view of memory, GC, goroutines, and CPU that complements point-in-time profiles.
+Datadog automatically collects Go runtime metrics when APM is enabled. These are invaluable during investigation sessions — they provide a time-series view of memory, GC, goroutines, and CPU that complements point-in-time profiles.
 
-When using `prometheus/client_golang`, refer to the library's official documentation to verify collector setup and available options.
-
-### Key Series
-
-→ See [prometheus-go-metrics.md](./prometheus-go-metrics.md) for the **exhaustive reference** of all Go runtime metrics (verified from official sources). **Note:** runtime/metrics list varies by Go version — use `metrics.All()` at runtime for your specific Go version.
-
-**Performance note:** `go_memstats_*` metrics internally call `runtime.ReadMemStats()`, which triggers a short stop-the-world pause. In Go 1.17+, the runtime/metrics collector (`collectors.NewGoCollector()`) uses `runtime/metrics` instead, which is cheaper. Prefer the modern collector in high-throughput services:
+Runtime metrics are available in Datadog under the `runtime.go.*` namespace. Enable with:
 
 ```go
-import "github.com/prometheus/client_golang/prometheus/collectors"
+import "gopkg.in/DataDog/dd-trace-go.v1/profiler"
 
-// Use runtime/metrics-based collector (lower overhead)
-reg := prometheus.NewRegistry()
-reg.MustRegister(collectors.NewGoCollector(
-    collectors.WithGoCollections(collectors.GoRuntimeMetricsCollection),
-))
-reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+// In your observability setup:
+profiler.Start(
+    profiler.WithRuntimeMetrics(),
+    profiler.WithProfileTypes(
+        profiler.CPUProfile,
+        profiler.HeapProfile,
+        profiler.GoroutineProfile,
+        profiler.MutexProfile,
+    ),
+)
 ```
 
-## PromQL Deep-Dive Queries
+Or via environment variable:
 
-Use these during investigation sessions with the reduced scrape interval. Each query includes what to look for and what the result means.
+```bash
+DD_RUNTIME_METRICS_ENABLED=true
+```
+
+### Key Metrics
+
+**Memory:**
+
+| Metric | What to look for |
+| --- | --- |
+| `runtime.go.mem.heap_alloc` | Current heap allocation. Continuously increasing = memory leak. |
+| `runtime.go.mem.heap_inuse` | Heap in active use. Compare with `heap_alloc` — large gap = GC can reclaim. |
+| `runtime.go.mem.heap_sys` | Total heap requested from OS. Should grow slowly, not continuously. |
+| `runtime.go.mem.live_objects` | Count of live heap objects. High count = many small allocations, GC-heavy. |
+
+**GC pressure:**
+
+| Metric | What to look for |
+| --- | --- |
+| `runtime.go.gc.count` | GC cycles per second. >2/s sustained = high allocation rate. Reduce allocations per request. |
+| `runtime.go.gc.pause_ns` | GC pause duration in nanoseconds. Spikes here cause tail latency (P99). |
+| `runtime.go.gc.cpu_fraction` | Fraction of CPU used by GC. >0.25 = GC overhead significant. |
+
+**Goroutines:**
+
+| Metric | What to look for |
+| --- | --- |
+| `runtime.go.num_goroutine` | Should correlate with load. Growing independently of traffic = goroutine leak. |
+| `runtime.go.num_cgo_call` | C calls from Go. High counts = CGO overhead in hot path. |
+
+**CPU:**
+
+| Metric | What to look for |
+| --- | --- |
+| `runtime.go.cpu.user_time` | User CPU time consumed by the Go program. |
+| `runtime.go.num_cpu` | GOMAXPROCS value. Unexpected changes affect concurrency. |
+
+## Datadog APM Deep-Dive Queries
+
+Use the Datadog Metrics Explorer or Dashboards during investigation sessions. Each metric below maps to a root cause.
 
 ### GC pressure
 
-| PromQL | What to look for |
-| --- | --- |
-| `rate(go_gc_duration_seconds_count[5m])` | GC cycles/s. >2/s sustained = excessive allocation rate. Reduce allocations per request. |
-| `rate(go_gc_duration_seconds_sum[5m]) / rate(go_gc_duration_seconds_count[5m])` | Average GC pause. Increasing trend = heap growing or too many pointers to scan. |
-| `go_gc_duration_seconds{quantile="1"}` | Worst-case GC pause. Spikes here cause tail latency (P99). |
+Query `runtime.go.gc.pause_ns` with `max:runtime.go.gc.pause_ns{service:my-service}`. Correlate GC spikes with latency increases on the same timeline.
 
 ### Memory leak detection
 
-| PromQL | What to look for |
-| --- | --- |
-| `go_memstats_alloc_bytes` | Should be roughly stable under constant load. Continuous increase = memory leak. |
-| `rate(go_memstats_alloc_bytes_total[5m])` | Allocation rate (bytes/s). Compare before/after deploy — significant increase = new allocation pattern. |
-| `process_resident_memory_bytes - go_memstats_sys_bytes` | Gap = non-Go memory (cgo, mmap). Growing gap = non-Go leak. |
+Graph `runtime.go.mem.heap_alloc` over a 24h window under constant load. A linear upward trend = leak. A sawtooth pattern = healthy GC collection.
 
 ### Goroutine leak detection
 
-| PromQL | What to look for |
-| --- | --- |
-| `go_goroutines` | Should correlate with load. Growing independently of traffic = leak. |
-| `delta(go_goroutines[1h])` | Net goroutine change over 1h. Positive without load increase = leak. |
-
-### CPU saturation
-
-| PromQL | What to look for |
-| --- | --- |
-| `rate(process_cpu_seconds_total[5m])` | CPU cores consumed. Compare to GOMAXPROCS. |
-| `rate(process_cpu_seconds_total[5m]) / <GOMAXPROCS>` | CPU utilization ratio. >0.8 sustained = CPU-saturated. |
+Graph `runtime.go.num_goroutine` correlated with traffic (`trace.http.request` count). If goroutines grow while traffic stays flat = leak.
 
 ### Post-deploy regression detection
 
-| PromQL | What to look for |
-| --- | --- |
-| `rate(go_memstats_alloc_bytes_total[5m])` | Compare before/after deploy window. Significant increase = new allocation pattern introduced. |
-| `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))` | P99 latency increase after deploy = performance regression. Requires app-level histogram. |
+Use Datadog deployment tracking (set `DD_VERSION` env var) — Datadog automatically marks deploy events on all metric charts. Compare `runtime.go.mem.heap_alloc` and GC metrics before/after the deploy marker.
 
-### Example alerting rules
-
-```yaml
-# GC taking too much time
-- alert: HighGCPauseTime
-  expr: rate(go_gc_duration_seconds_sum[5m]) / rate(go_gc_duration_seconds_count[5m]) > 0.01
-  for: 10m
-  annotations:
-    summary: "Average GC pause >10ms — reduce allocations or tune GOGC"
-
-# Goroutine leak
-- alert: GoroutineLeak
-  expr: go_goroutines > 10000
-  for: 5m
-  annotations:
-    summary: "Goroutine count >10K — check for leaked goroutines"
-
-# Memory approaching container limit
-- alert: MemoryNearLimit
-  expr: predict_linear(process_resident_memory_bytes[1h], 3600) > <container_limit_bytes>
-  for: 15m
-  annotations:
-    summary: "RSS projected to exceed container limit within 1h"
+```bash
+kubectl set env deployment/my-service DD_VERSION=v1.2.3
 ```
 
-Adjust thresholds to your application — a data pipeline has different baselines than an API server.
+### Example Datadog Monitor alerts
 
-## Host-Level Correlation
+```yaml
+# GC CPU overhead too high
+name: "Go GC CPU fraction high"
+query: "avg(last_10m):avg:runtime.go.gc.cpu_fraction{env:production} > 0.25"
+message: "GC consuming >25% CPU — reduce allocations or tune GOGC"
 
-Go runtime metrics alone don't show the full picture. Host-level metrics reveal whether the problem is in your application or the infrastructure.
+# Goroutine leak
+name: "Goroutine count growing"
+query: "avg(last_30m):anomaly(avg:runtime.go.num_goroutine{env:production}, 'basic', 3) >= 1"
+message: "Goroutine count anomaly — check for goroutine leaks"
 
-- **`node_exporter`** — host CPU, memory, disk I/O, network. Correlate with Go app metrics: high `node_cpu_seconds_total` with low `process_cpu_seconds_total` = noisy neighbor, not your app.
-- **`process-exporter`** — per-process metrics on Linux. Useful when multiple Go services share a host.
+# Memory near container limit
+name: "Heap approaching limit"
+query: "avg(last_5m):avg:runtime.go.mem.heap_sys{env:production} > <limit_bytes>"
+message: "Heap sys approaching container memory limit"
+```
+
+## Datadog Continuous Profiler
+
+When `DD_PROFILING_ENABLED=true`, Datadog collects CPU, heap, goroutine, and mutex profiles continuously and uploads them to the Datadog UI.
+
+Profiles are viewable at **APM → Profiling** in the Datadog UI. Key profile types:
+
+| Profile type | What it shows | Use when |
+| --- | --- | --- |
+| **CPU** | Which functions consume CPU | High CPU usage, slow responses |
+| **Heap (allocs)** | Where memory is allocated | GC pressure, high allocation rate |
+| **Heap (inuse)** | What is currently alive in memory | Memory leak investigation |
+| **Goroutine** | Goroutine count and stack traces | Goroutine leak investigation |
+| **Mutex** | Lock contention hotspots | Throughput bottleneck from synchronization |
+
+The Datadog Continuous Profiler also supports **flame graph diffs** — compare a before/after deploy to see exactly which functions changed CPU or memory usage.
 
 ## Cost Warnings
 
 **Profiles and traces are expensive to collect.** Keep them short-term and localized:
 
 - **pprof CPU profiling** — CPU-intensive during the capture window. Don't run 30s profiles back-to-back in production. Space them out.
-- **Pyroscope continuous profiling** — ~2-5% CPU overhead **per instance, always-on**. At scale (hundreds of instances), this adds up in compute cost and backend storage. Enable on a subset of instances or on-demand via environment variable. → See `samber/cc-skills-golang@golang-observability` skill for Pyroscope setup.
+- **Datadog Continuous Profiler** — ~2-5% CPU overhead per instance. At scale (hundreds of instances), this adds up in compute cost. Enable on a subset of instances or on-demand via `DD_PROFILING_ENABLED` env var.
 - **Execution traces** — generate large files quickly (MB/s). Capture 5-10s max. Longer traces are unwieldy and slow to analyze.
 - **Debug log level** — significant throughput impact due to allocation and I/O overhead. Never leave on permanently.
 - **All costly features** SHOULD be toggleable via environment variables for instant on/off without recompile. Design for this from day one.

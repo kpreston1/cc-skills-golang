@@ -417,7 +417,7 @@ The snapshot contains the same data as a regular trace — use all the same anal
 | Investigating a known slow operation | `go test -trace` or `trace.Start`/`Stop` | You know when to start and stop |
 | Intermittent latency spikes in production | Flight recorder | You don't know when the spike will happen — the buffer captures it retroactively |
 | Post-mortem after a timeout or crash | Flight recorder | The problem already happened; regular tracing would miss it |
-| Continuous performance monitoring | `samber/cc-skills-golang@golang-observability` (Pyroscope) | Flight recorder is for one-shot diagnosis, not continuous collection |
+| Continuous performance monitoring | `samber/cc-skills-golang@golang-observability` (Datadog Continuous Profiler) | Flight recorder is for one-shot diagnosis, not continuous collection |
 
 ## Overhead and Practical Limits
 

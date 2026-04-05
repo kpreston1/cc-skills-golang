@@ -1,28 +1,30 @@
 # Error Wrapping and Inspection
 
-## Error Wrapping with `%w`
+## Error Wrapping with `github.com/pkg/errors`
 
-Wrapping preserves the original error in a chain that callers can inspect with `errors.Is` and `errors.As`. Errors SHOULD be wrapped at each layer to build a readable chain.
+`github.com/pkg/errors` provides `Wrap`, `Wrapf`, `WithStack`, and `WithMessage` to attach context and stack traces. Errors SHOULD be wrapped at each layer to build a readable chain.
 
 ```go
-// ✓ Good — wraps with context, preserves the chain
+import "github.com/pkg/errors"
+
+// ✓ Good — wraps with context and captures a stack trace
 func (s *UserService) GetUser(id string) (*User, error) {
     user, err := s.repo.FindByID(id)
     if err != nil {
-        return nil, fmt.Errorf("getting user %s: %w", id, err)
+        return nil, errors.Wrapf(err, "getting user %s", id)
     }
     return user, nil
 }
 ```
 
-### `%w` vs `%v`: controlling exposure
+### Controlling exposure at system boundaries
 
-Use `%w` within your module to preserve the error chain. Use `%v` at public API / system boundaries to prevent callers from depending on internal error types.
+Use `errors.Wrap` within your module to preserve the error chain. At public API / system boundaries, use `fmt.Errorf` with `%v` (not `%w`) to prevent callers from depending on internal error types.
 
 ```go
-// Internal layer — wrap to preserve chain
+// Internal layer — wrap to preserve chain and capture stack
 func (r *repo) fetch(id string) error {
-    return fmt.Errorf("querying database: %w", err)
+    return errors.Wrap(err, "querying database")
 }
 
 // Public API boundary — break chain to hide internals
@@ -32,6 +34,16 @@ func (s *PublicService) GetItem(id string) error {
         return fmt.Errorf("item unavailable: %v", err) // %v — callers cannot unwrap
     }
     return nil
+}
+```
+
+### `errors.Cause` — get the root error
+
+```go
+// Unwrap to the original error
+root := errors.Cause(err)
+if root == sql.ErrNoRows {
+    return ErrNotFound
 }
 ```
 

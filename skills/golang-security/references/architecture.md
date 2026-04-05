@@ -144,6 +144,14 @@ func ZeroTrustMiddleware(next http.Handler) http.Handler {
 | CLI/Automation | API keys with IP allowlisting | Custom middleware with `net.ParseIP` |
 | High security | FIDO2/WebAuthn hardware keys | `github.com/go-webauthn/webauthn` |
 
+### Internal-Only Services
+
+Services that are internal-only (behind a service mesh, VPC, or ingress that enforces mTLS or network-level auth) do not require endpoint-level auth middleware — the trust boundary is enforced at the network layer. When omitting endpoint auth intentionally:
+
+- **Document the trust boundary** — note in the service README or `main.go` that the service is internal-only and which network control enforces access (e.g. "This service is not public-facing — access is restricted by the VPC security group / service mesh policy").
+- **Never rely on network location alone without documentation** — an undocumented lack of auth looks like a bug to the next engineer. Make the intent explicit.
+- **Reassess if the service ever becomes public-facing** — the absence of auth middleware should be a conscious, documented decision, not an oversight.
+
 ### JWT Validation — Complete Example
 
 JWT validation must pin the signing algorithm to prevent algorithm confusion attacks (where an attacker switches RS256 to HS256 and signs with the public key):
