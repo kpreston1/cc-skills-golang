@@ -133,8 +133,6 @@ For full pprof CLI reference (all commands, non-interactive mode, profile interp
 
 - **[CI Regression Detection](./references/ci-regression.md)** — Automated performance regression gating in CI pipelines. Covers three tools (benchdiff for quick PR comparisons, cob for strict threshold-based gating, gobenchdata for long-term trend dashboards), noisy neighbor mitigation strategies (why cloud CI benchmarks vary 5-10% even on quiet machines), and self-hosted runner tuning to make benchmarks reproducible. Use this when you want to ensure pull requests don't silently slow down your codebase — detecting regressions early prevents shipping performance debt.
 
-- **[Investigation Session](./references/investigation-session.md)** — Production performance troubleshooting workflow: enabling pprof on a running service, correlating Datadog APM metrics (heap size, GC frequency, goroutine counts) with code changes, runtime configuration flags (GODEBUG env vars to enable GC logging), and cost warnings. Use this when production benchmarks look good but real traffic behaves differently.
-
 ## Cross-References
 
 - → See `samber/cc-skills-golang@golang-performance` skill for optimization patterns to apply after measuring ("if X bottleneck, apply Y")
