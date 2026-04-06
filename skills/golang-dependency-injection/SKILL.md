@@ -1,6 +1,6 @@
 ---
 name: golang-dependency-injection
-description: "Comprehensive guide for dependency injection (DI) in Golang. Covers why DI matters (testability, loose coupling, separation of concerns, lifecycle management), manual constructor injection, and DI library comparison (google/wire, uber-go/dig, uber-go/fx, samber/do). Use this skill when designing service architecture, setting up dependency injection, refactoring tightly coupled code, managing singletons or service factories, or when the user asks about inversion of control, service containers, or wiring dependencies in Go."
+description: "Comprehensive guide for dependency injection (DI) in Golang. Covers why DI matters (testability, loose coupling, separation of concerns, lifecycle management), manual constructor injection, and DI library comparison (google/wire, uber-go/dig, uber-go/fx). Use this skill when designing service architecture, setting up dependency injection, refactoring tightly coupled code, managing singletons or service factories, or when the user asks about inversion of control, service containers, or wiring dependencies in Go."
 user-invocable: false
 license: MIT
 compatibility: Designed for Claude Code or similar AI coding agents, and for projects using Golang.
@@ -30,14 +30,14 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(g
 
 Dependency injection (DI) means passing dependencies to a component rather than having it create or find them. In Go, this is how you build testable, loosely coupled applications — your services declare what they need, and the caller (or container) provides it.
 
-This skill is not exhaustive. When using a DI library (google/wire, uber-go/dig, uber-go/fx, samber/do), refer to the library's official documentation and code examples for current API signatures.
+This skill is not exhaustive. When using a DI library (google/wire, uber-go/dig, uber-go/fx), refer to the library's official documentation and code examples for current API signatures.
 
 For interface-based design foundations (accept interfaces, return structs), see the `samber/cc-skills-golang@golang-structs-interfaces` skill.
 
 ## Best Practices Summary
 
-1. Dependencies MUST be injected via constructors — NEVER use global variables or `init()` for service setup
-2. Small projects (< 10 services) SHOULD use manual constructor injection — no library needed
+1. **Default to manual constructor injection** — it is the preferred approach unless you have a specific reason to adopt a library (see "When to Adopt a DI Library" below)
+2. Dependencies MUST be injected via constructors — NEVER use global variables or `init()` for service setup
 3. Interfaces MUST be defined where consumed, not where implemented — accept interfaces, return structs
 4. NEVER use global registries or package-level service locators
 5. The DI container MUST only exist at the composition root (`main()` or app startup) — NEVER pass the container as a dependency
@@ -45,7 +45,7 @@ For interface-based design foundations (accept interfaces, return structs), see 
 7. **Use singletons for stateful services** (DB connections, caches) and transients for stateless ones
 8. **Mock at the interface boundary** — DI makes this trivial
 9. **Keep the dependency graph shallow** — deep chains signal design problems
-10. **Choose the right DI library** for your project size and team — see the decision table below
+10. **Only adopt a DI library** when manual wiring becomes genuinely painful — see the decision table below
 
 ## Why Dependency Injection?
 
@@ -62,7 +62,7 @@ DI shines in applications with many interconnected services — HTTP servers, mi
 
 ## Manual Constructor Injection (No Library)
 
-For small projects, pass dependencies through constructors. See [Manual DI examples](./references/manual-di.md) for a complete application example.
+This is the **preferred approach** — default to it unless you have a specific reason to adopt a library. Pass dependencies through constructors. See [Manual DI examples](./references/manual-di.md) for a complete application example.
 
 ```go
 // ✓ Good — explicit dependencies, testable
@@ -109,33 +109,31 @@ Manual DI breaks down when:
 
 ## DI Library Comparison
 
-Go has three main approaches to DI libraries:
+Go has two main library approaches to DI:
 
 - [google/wire examples](./references/google-wire.md) — Compile-time code generation
 - [uber-go/dig + fx examples](./references/uber-dig-fx.md) — Reflection-based framework
-- [samber/do examples](./references/samber-do.md) — Generics-based, no code generation
 
 ### Decision Table
 
-| Criteria | Manual | google/wire | uber-go/dig + fx | samber/do |
-| --- | --- | --- | --- | --- |
-| **Project size** | Small (< 10 services) | Medium-Large | Large | Any size |
-| **Type safety** | Compile-time | Compile-time (codegen) | Runtime (reflection) | Compile-time (generics) |
-| **Code generation** | None | Required (`wire_gen.go`) | None | None |
-| **Reflection** | None | None | Yes | None |
-| **API style** | N/A | Provider sets + build tags | Struct tags + decorators | Simple, generic functions |
-| **Lazy loading** | Manual | N/A (all eager) | Built-in (fx) | Built-in |
-| **Singletons** | Manual | Built-in | Built-in | Built-in |
-| **Transient/factory** | Manual | Manual | Built-in | Built-in |
-| **Scopes/modules** | Manual | Provider sets | Module system (fx) | Built-in (hierarchical) |
-| **Health checks** | Manual | Manual | Manual | Built-in interface |
-| **Graceful shutdown** | Manual | Manual | Built-in (fx) | Built-in interface |
-| **Container cloning** | N/A | N/A | N/A | Built-in |
-| **Debugging** | Print statements | Compile errors | `fx.Visualize()` | `ExplainInjector()`, web interface |
-| **Go version** | Any | Any | Any | 1.18+ (generics) |
-| **Learning curve** | None | Medium | High | Low |
+| Criteria | Manual | google/wire | uber-go/dig + fx |
+| --- | --- | --- | --- |
+| **Project size** | Small (< 10 services) | Medium-Large | Large |
+| **Type safety** | Compile-time | Compile-time (codegen) | Runtime (reflection) |
+| **Code generation** | None | Required (`wire_gen.go`) | None |
+| **Reflection** | None | None | Yes |
+| **API style** | N/A | Provider sets + build tags | Struct tags + decorators |
+| **Lazy loading** | Manual | N/A (all eager) | Built-in (fx) |
+| **Singletons** | Manual | Built-in | Built-in |
+| **Transient/factory** | Manual | Manual | Built-in |
+| **Scopes/modules** | Manual | Provider sets | Module system (fx) |
+| **Health checks** | Manual | Manual | Manual |
+| **Graceful shutdown** | Manual | Manual | Built-in (fx) |
+| **Debugging** | Print statements | Compile errors | `fx.Visualize()` |
+| **Go version** | Any | Any | Any |
+| **Learning curve** | None | Medium | High |
 
-### Quick Comparison: Same App, Four Ways
+### Quick Comparison: Same App, Three Ways
 
 The dependency graph: `Config -> Database -> UserStore -> UserService -> API`
 
@@ -172,19 +170,6 @@ app := fx.New(
 app.Run() // manages lifecycle, but reflection-based
 ```
 
-**samber/do**:
-
-```go
-i := do.New()
-do.Provide(i, NewConfig)
-do.Provide(i, NewDatabase)    // auto shutdown + health check
-do.Provide(i, NewUserStore)
-do.Provide(i, NewUserService)
-api := do.MustInvoke[*API](i)
-api.Run()
-// defer i.Shutdown() — handles all cleanup automatically
-```
-
 ## Testing with DI
 
 DI makes testing straightforward — inject mocks instead of real implementations:
@@ -203,7 +188,9 @@ func (m *MockUserStore) FindByID(ctx context.Context, id string) (*User, error) 
     return u, nil
 }
 
-// Test with manual injection
+### Testing with uber-go/fx
+
+```go
 func TestUserService_GetUser(t *testing.T) {
     mock := &MockUserStore{
         users: map[string]*User{"1": {ID: "1", Name: "Alice"}},
@@ -220,40 +207,15 @@ func TestUserService_GetUser(t *testing.T) {
 }
 ```
 
-### Testing with samber/do — Clone and Override
-
-Container cloning creates an isolated copy where you override only the services you need to mock:
-
-```go
-func TestUserService_WithDo(t *testing.T) {
-    // Create a test injector with mock implementation
-    testInjector := do.New()
-
-    // Provide the mock UserStore interface
-    do.Override[UserStore](testInjector, &MockUserStore{
-        users: map[string]*User{"1": {ID: "1", Name: "Alice"}},
-    })
-
-    // Provide other real services as needed
-    do.Provide[*slog.Logger](testInjector, func(i *do.Injector) (*slog.Logger, error) {
-        return slog.Default(), nil
-    })
-
-    svc := do.MustInvoke[*UserService](testInjector)
-    user, err := svc.GetUser(context.Background(), "1")
-    // ... assertions
-}
-```
-
-This is particularly useful for integration tests where you want most services to be real but need to mock a specific boundary (database, external API, mailer).
-
 ## When to Adopt a DI Library
+
+Manual constructor injection is the default. Reach for a library only when manual wiring becomes genuinely painful:
 
 | Signal | Action |
 | --- | --- |
-| < 10 services, simple dependencies | Stay with manual constructor injection |
-| 10-20 services, some cross-cutting concerns | Consider a DI library |
-| 20+ services, lifecycle management needed | Strongly recommended |
+| < 15 services, manageable dependencies | **Use manual constructor injection** (default) |
+| 15-20 services, some cross-cutting concerns | Consider a DI library — but manual is still viable |
+| 20+ services, lifecycle management needed | DI library strongly recommended |
 | Need health checks, graceful shutdown | Use a library with built-in lifecycle support |
 | Team unfamiliar with DI concepts | Start manual, migrate incrementally |
 
@@ -270,14 +232,12 @@ This is particularly useful for integration tests where you want most services t
 
 ## Cross-References
 
-- → See `samber/cc-skills-golang@golang-samber-do` skill for detailed samber/do usage patterns
 - → See `samber/cc-skills-golang@golang-structs-interfaces` skill for interface design and composition
 - → See `samber/cc-skills-golang@golang-testing` skill for testing with dependency injection
 - → See `samber/cc-skills-golang@golang-project-layout` skill for DI initialization placement
 
 ## References
 
-- [samber/do/v2 documentation](https://do.samber.dev) | [github.com/samber/do/v2](https://github.com/samber/do)
 - [google/wire user guide](https://github.com/google/wire/blob/main/docs/guide.md)
 - [uber-go/fx documentation](https://uber-go.github.io/fx/)
 - [uber-go/dig](https://github.com/uber-go/dig)

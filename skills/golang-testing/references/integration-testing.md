@@ -32,6 +32,17 @@ services:
       retries: 5
 ```
 
+## Shared vs Isolated Containers
+
+Two accepted approaches for integration test infrastructure:
+
+| Approach | When to use |
+| --- | --- |
+| **Monorepo shared Docker Compose** (fixed ports) | Services share a single `docker-compose.yml` at the repo root or service level. Tests connect to well-known ports (e.g. `localhost:6380` for Valkey/Redis). Simple to set up; works well when only one developer runs tests at a time or tests are serialized in CI. |
+| **`testcontainers-go`** (ephemeral per-run containers) | Each test run spins up its own container on a random port. Fully isolated — multiple test runs can execute in parallel without port conflicts. Preferred for services with heavy parallel CI or developer machines running multiple test suites simultaneously. |
+
+A monorepo that maps Valkey/Redis to a fixed port (e.g. `6380:6379`) shared across services is an accepted convention when the team runs tests serially. Document the port in the service README so developers know to start the compose stack before running integration tests.
+
 ## SQL Schema Fixture
 
 Create `pkg/myfeature/testdata/schema.sql` for database initialization:

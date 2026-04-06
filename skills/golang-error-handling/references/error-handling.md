@@ -10,18 +10,16 @@ func processOrder(id string) error {
     err := chargeCard(id)
     if err != nil {
         log.Printf("failed to charge card: %v", err)
-        return fmt.Errorf("charging card: %w", err)
+        return errors.Wrap(err, "charging card")
     }
     return nil
 }
 
-// ✓ Good — return with context, let the caller decide
+// ✓ Good — wrap with context and return, let the caller decide
 func processOrder(id string) error {
     err := chargeCard(id)
     if err != nil {
-        return oops.
-            With("order_id", id).
-            Wrapf(err, "charging card")
+        return errors.Wrapf(err, "charging card for order %s", id)
     }
     return nil
 }
@@ -30,13 +28,36 @@ func processOrder(id string) error {
 func handleOrder(w http.ResponseWriter, r *http.Request) {
     err := processOrder(r.FormValue("id"))
     if err != nil {
-        slog.Error("order failed", "error", err)
+        slog.Error("order failed", "error", fmt.Sprintf("%+v", err)) // %+v prints stack trace
         http.Error(w, "internal error", http.StatusInternalServerError)
         return
     }
     w.WriteHeader(http.StatusOK)
 }
 ```
+
+## Stack Traces with `github.com/pkg/errors`
+
+Use `errors.Wrap` or `errors.WithStack` at the origin of an error to capture a stack trace. The stack is printed with `%+v`:
+
+```go
+import "github.com/pkg/errors"
+
+func (r *UserRepository) FindByID(id string) (*User, error) {
+    row := r.db.QueryRow("SELECT * FROM users WHERE id = $1", id)
+    if err := row.Scan(&user); err != nil {
+        return nil, errors.Wrap(err, "scanning user row") // stack captured here
+    }
+    return &user, nil
+}
+
+// At the logging boundary:
+if err != nil {
+    slog.Error("request failed", "error", fmt.Sprintf("%+v", err)) // prints full stack
+}
+```
+
+Only wrap once per error origin — avoid calling `errors.WithStack` on an error already wrapped by `errors.Wrap`, as it duplicates the stack trace.
 
 ## Panic and Recover
 
@@ -84,45 +105,6 @@ func safeHandler(next http.Handler) http.Handler {
     })
 }
 ```
-
-For structured panic recovery with `samber/oops`, see the `samber/cc-skills-golang@golang-samber-oops` skill.
-
-## Why Use `samber/oops`
-
-- **Stack traces** — you see `"connection refused"` but need to know where it originated
-- **Structured context** — user ID, tenant ID, or request metadata attached to the error
-- **Error codes** — machine-readable identifiers for monitoring dashboards
-- **Public/private separation** — safe message to show end users
-- ...
-
-`samber/oops` is a **drop-in replacement** that fills these gaps. Every `oops` error implements the standard `error` interface, works with `errors.Is`/`errors.As`, and adds structured attributes:
-
-```go
-// ✗ Before — standard errors, no context
-func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderReq) error {
-    err := s.db.Insert(ctx, req.Order)
-    if err != nil {
-        return fmt.Errorf("inserting order: %w", err)
-    }
-    return nil
-}
-
-// ✓ After — samber/oops, rich context for debugging
-func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderReq) error {
-    err := s.db.Insert(ctx, req.Order)
-    if err != nil {
-        return oops.
-            In("order-service").
-            Code("order_insert_failed").
-            User(req.UserID).
-            With("order_id", req.Order.ID).
-            Wrapf(err, "inserting order")
-    }
-    return nil
-}
-```
-
-When this error is logged, you get the stack trace, user ID, order ID, domain, error code, and the full error chain — all structured and machine-parseable.
 
 ## Logging Errors with `slog`
 

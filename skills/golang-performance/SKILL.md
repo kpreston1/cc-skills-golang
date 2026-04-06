@@ -43,7 +43,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(g
 
 Before optimizing Go code, verify the bottleneck is in your process — if 90% of latency is a slow DB query or API call, reducing allocations won't help.
 
-**Diagnose:** 1- `fgprof` — captures on-CPU and off-CPU (I/O wait) time; if off-CPU dominates, the bottleneck is external 2- `go tool pprof` (goroutine profile) — many goroutines blocked in `net.(*conn).Read` or `database/sql` = external wait 3- Distributed tracing (OpenTelemetry) — span breakdown shows which upstream is slow
+**Diagnose:** 1- `fgprof` — captures on-CPU and off-CPU (I/O wait) time; if off-CPU dominates, the bottleneck is external 2- `go tool pprof` (goroutine profile) — many goroutines blocked in `net.(*conn).Read` or `database/sql` = external wait 3- Datadog APM — span breakdown shows which upstream is slow
 
 **When external:** optimize that component instead — query tuning, caching, connection pools, circuit breakers (→ See `samber/cc-skills-golang@golang-database` skill, [Caching Patterns](references/caching.md)).
 
@@ -93,7 +93,7 @@ Refer to library documentation for known patterns before inventing custom soluti
 - [I/O & Networking](references/io-networking.md) — HTTP transport config, streaming, JSON performance, cgo, batch operations
 - [Runtime Tuning](references/runtime.md) — GOGC, GOMEMLIMIT, GC diagnostics, GOMAXPROCS, PGO
 - [Caching Patterns](references/caching.md) — algorithmic complexity, compiled patterns, singleflight, work avoidance
-- [Production Observability](references/observability.md) — Prometheus metrics, PromQL queries, continuous profiling, alerting rules
+- [Production Observability](references/observability.md) — Datadog metrics, continuous profiling, and runtime monitoring
 
 ## CI Regression Detection
 

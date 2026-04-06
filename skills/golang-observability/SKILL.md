@@ -1,12 +1,12 @@
 ---
 name: golang-observability
-description: "Golang everyday observability — the always-on signals in production. Covers structured logging with slog, Prometheus metrics, OpenTelemetry distributed tracing, continuous profiling with pprof/Pyroscope, server-side RUM event tracking, alerting, and Grafana dashboards. Apply when instrumenting Go services for production monitoring, setting up metrics or alerting, adding OpenTelemetry tracing, correlating logs with traces, migrating legacy loggers (zap/logrus/zerolog) to slog, adding observability to new features, or implementing GDPR/CCPA-compliant tracking with Customer Data Platforms (CDP). Not for temporary deep-dive performance investigation (→ See golang-benchmark and golang-performance skills)."
+description: "Golang everyday observability — the always-on signals in production using Datadog. Covers structured logging with slog + Datadog bridge, distributed tracing with dd-trace-go v2, continuous profiling with Datadog profiler, and APM setup. Apply when instrumenting Go services with Datadog, setting up dd-trace-go, adding spans, correlating logs with traces, wiring traced HTTP/DB/Redis/AWS clients, or propagating traces across service boundaries."
 user-invocable: true
 license: MIT
 compatibility: Designed for Claude Code or similar AI coding agents, and for projects using Golang.
 metadata:
   author: samber
-  version: "1.1.2"
+  version: "1.2.1"
   openclaw:
     emoji: "📡"
     homepage: https://github.com/samber/cc-skills-golang
@@ -21,155 +21,218 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(g
 
 **Modes:**
 
-- **Coding / instrumentation** (default): Add observability to new or existing code — declare metrics, add spans, set up structured logging, wire pprof toggles. Follow the sequential instrumentation guide.
-- **Review mode** — reviewing a PR's instrumentation changes. Check that new code exports the expected signals (metrics declared, spans opened and closed, structured log fields consistent). Sequential.
-- **Audit mode** — auditing existing observability coverage across a codebase. Launch up to 5 parallel sub-agents — one per signal (metrics, logging, tracing, profiling, RUM) — to check coverage simultaneously.
+- **Coding / instrumentation** (default): Add observability to new or existing code — add spans, wire traced clients, set up structured logging. Follow the sequential instrumentation guide.
+- **Review mode** — reviewing a PR's instrumentation changes. Check that new code creates spans, uses traced constructors, and logs with context variants. Sequential.
+- **Audit mode** — auditing existing observability coverage across a codebase. Launch up to 3 parallel sub-agents — one for spans/tracing, one for logging, one for traced client wiring.
 
 > **Community default.** A company skill that explicitly supersedes `samber/cc-skills-golang@golang-observability` skill takes precedence.
 
-# Go Observability Best Practices
+# Go Observability with Datadog
 
-Observability is the ability to understand a system's internal state from its external outputs. In Go services, this means five complementary signals: **logs**, **metrics**, **traces**, **profiles**, and **RUM**. Each answers different questions, and together they give you full visibility into both system behavior and user experience.
+This project uses **Datadog APM** via `dd-trace-go/v2` for distributed tracing, structured logging via `log/slog` with the Datadog slog bridge, and Datadog Continuous Profiling for always-on profiling. All observability utilities live in the shared `utils` package.
 
-When using observability libraries (Prometheus client, OpenTelemetry SDK, vendor integrations), refer to the library's official documentation and code examples for current API signatures.
+Install:
+
+```bash
+go get github.com/DataDog/dd-trace-go/v2
+```
 
 ## Best Practices Summary
 
-1. **Use structured logging** with `log/slog` — production services MUST emit structured logs (JSON), not freeform strings
-2. **Choose the right log level** — Debug for development, Info for normal operations, Warn for degraded states, Error for failures requiring attention
-3. **Log with context** — use `slog.InfoContext(ctx, ...)` to correlate logs with traces
-4. **Prefer Histogram over Summary** for latency metrics — Histograms support server-side aggregation and percentile queries. Every HTTP endpoint MUST have latency and error rate metrics.
-5. **Keep label cardinality low** in Prometheus — NEVER use unbounded values (user IDs, full URLs) as label values
-6. **Track percentiles** (P50, P90, P99, P99.9) using Histograms + `histogram_quantile()` in PromQL
-7. **Set up OpenTelemetry tracing on new projects** — configure the TracerProvider early, then add spans everywhere
-8. **Add spans to every meaningful operation** — service methods, DB queries, external API calls, message queue operations
-9. **Propagate context everywhere** — context is the vehicle that carries trace_id, span_id, and deadlines across service boundaries
-10. **Enable profiling via environment variables** — toggle pprof and continuous profiling on/off without redeploying
-11. **Correlate signals** — inject trace_id into logs, use exemplars to link metrics to traces
-12. **A feature is not done until it is observable** — declare metrics, add proper logging, create spans
-13. **Use [awesome-prometheus-alerts](https://samber.github.io/awesome-prometheus-alerts/) as a starting point** for infrastructure and dependency alerting — browse by technology, copy rules, customize thresholds
+1. **Always use `utils.StartObservability()`** at application startup — never call `tracer.Start()` directly
+2. **Always call `utils.ShutdownObservability()`** on graceful shutdown — it flushes buffered spans before exit
+3. **Use `utils.StartSpan(ctx)`** for service/method spans — it auto-names the span from the caller function name
+4. **Always `defer span.Finish()`** immediately after creating a span — leaked spans never reach Datadog
+5. **Use `utils.RecordSpanError(span, err)`** to mark spans as failed — do not swallow errors silently
+6. **Use `utils.NewTracedSlogHandler()`** for the slog handler — it injects `dd.trace_id` and `dd.span_id` into every log line automatically
+7. **Use `slog.*Context(ctx, ...)`** variants, not bare `slog.*()` — the context carries the active span for trace correlation
+8. **Use traced constructors** (`NewTracedHTTPClient`, `NewTracedDBConnection`, `NewTracedCacheConnection`, `NewTracedAWS`) — never use unwrapped clients, they produce gaps in traces
+9. **Propagate context everywhere** — pass `ctx` through every function call; dropping context breaks the trace chain
+10. **Use `utils.MarshalSpan` / `utils.ResumeSpanFromTrace`** for distributed tracing across async boundaries (message queues, async jobs)
+11. **A feature is not done until it has spans** — every service method, DB query, and external API call must be traceable
 
 ## Cross-References
 
-See `samber/cc-skills-golang@golang-error-handling` skill for the single handling rule. See `samber/cc-skills-golang@golang-troubleshooting` skill for using observability signals to diagnose production issues. See `samber/cc-skills-golang@golang-security` skill for protecting pprof endpoints and avoiding PII in logs. See `samber/cc-skills-golang@golang-context` skill for propagating trace context across service boundaries. See `samber/cc-skills@promql-cli` skill for querying and exploring PromQL expressions against Prometheus from the CLI.
+See `samber/cc-skills-golang@golang-error-handling` skill for the single error handling rule. See `samber/cc-skills-golang@golang-troubleshooting` skill for using Datadog APM to diagnose production issues. See `samber/cc-skills-golang@golang-context` skill for context propagation across service boundaries.
 
-## The Five Signals
-
-| Signal | Question it answers | Tool | When to use |
-| --- | --- | --- | --- |
-| **Logs** | What happened? | `log/slog` | Discrete events, errors, audit trails |
-| **Metrics** | How much / how fast? | Prometheus client | Aggregated measurements, alerting, SLOs |
-| **Traces** | Where did time go? | OpenTelemetry | Request flow across services, latency breakdown |
-| **Profiles** | Why is it slow / using memory? | pprof, Pyroscope | CPU hotspots, memory leaks, lock contention |
-| **RUM** | How do users experience it? | PostHog, Segment | Product analytics, funnels, session replay |
-
-## Detailed Guides
-
-Each signal has a dedicated guide with full code examples, configuration patterns, and cost analysis:
-
-- **[Structured Logging](references/logging.md)** — Why structured logging matters for log aggregation at scale. Covers `log/slog` setup, log levels (Debug/Info/Warn/Error) and when to use each, request correlation with trace IDs, context propagation with `slog.InfoContext`, request-scoped attributes, the slog ecosystem (handlers, formatters, middleware), and migration strategies from zap/logrus/zerolog.
-
-- **[Metrics Collection](references/metrics.md)** — Prometheus client setup and the four metric types (Counter for rate-of-change, Gauge for snapshots, Histogram for latency aggregation). Deep dive: why Histograms beat Summaries (server-side aggregation, supports `histogram_quantile` PromQL), naming conventions, the PromQL-as-comments convention (write queries above metric declarations for discoverability), production-grade PromQL examples, multi-window SLO burn rate alerting, and the high-cardinality label problem (why unbounded values like user IDs destroy performance).
-
-- **[Distributed Tracing](references/tracing.md)** — When and how to use OpenTelemetry SDK to trace request flows across services. Covers spans (creating, attributes, status recording), `otelhttp` middleware for HTTP instrumentation, error recording with `span.RecordError()`, trace sampling (why you can't collect everything at scale), propagating trace context across service boundaries, and cost optimization.
-
-- **[Profiling](references/profiling.md)** — On-demand profiling with pprof (CPU, heap, goroutine, mutex, block profiles) — how to enable it in production, secure it with auth, and toggle via environment variables without redeploying. Continuous profiling with Pyroscope for always-on performance visibility. Cost implications of each profiling type and mitigation strategies.
-
-- **[Real User Monitoring](references/rum.md)** — Understanding how users actually experience your service. Covers product analytics (event tracking, funnels), Customer Data Platform integration, and critical compliance: GDPR/CCPA consent checks, data subject rights (user deletion endpoints), and privacy checklist for tracking. Server-side event tracking (PostHog, Segment) and identity key best practices.
-
-- **[Alerting](references/alerting.md)** — Proactive problem detection. Covers the four golden signals (latency, traffic, errors, saturation), [awesome-prometheus-alerts](https://samber.github.io/awesome-prometheus-alerts/) as a rule library with ~500 ready-to-use rules by technology, Go runtime alerts (goroutine leaks, GC pressure, OOM risk), severity levels, and common mistakes that break alerting (using `irate` instead of `rate`, missing `for:` duration to avoid flapping).
-
-- **[Grafana Dashboards](references/dashboards.md)** — Prebuilt dashboards for Go runtime monitoring (heap allocation, GC pause frequency, goroutine count, CPU). Explains the standard dashboards to install, how to customize them for your service, and when each dashboard answers a different operational question.
-
-## Correlating Signals
-
-Signals are most powerful when connected. A trace_id in your logs lets you jump from a log line to the full request trace. An exemplar on a metric links a latency spike to the exact trace that caused it.
-
-### Logs + Traces: `otelslog` bridge
+## APM Lifecycle
 
 ```go
-import "go.opentelemetry.io/contrib/bridges/otelslog"
+func main() {
+    utils.StartObservability()
+    defer utils.ShutdownObservability()
 
-// Create a logger that automatically injects trace_id and span_id
-logger := otelslog.NewHandler("my-service")
-slog.SetDefault(slog.New(logger))
-
-// Now every slog call with context includes trace correlation
-slog.InfoContext(ctx, "order created", "order_id", orderID)
-// Output includes: {"trace_id":"abc123", "span_id":"def456", "msg":"order created", ...}
+    // ... application setup ...
+}
 ```
 
-### Metrics + Traces: Exemplars
+`ShutdownObservability` is a no-op when `DD_TRACE_ENABLED=false`, making it safe to call unconditionally.
+
+**Environment detection:** Use `utils.IsDevEnv(cfg.Environment)` (free function in the shared `utils` package) to branch on environment — do not add `IsDevEnv()` / `IsProdEnv()` methods to config structs. The free function is the established Eden-wide pattern and keeps config structs as plain data holders.
+
+## Creating Spans
+
+Use `utils.StartSpan(ctx)` for all service and method spans. It automatically names the span after the calling function:
 
 ```go
-// When recording a histogram observation, attach the trace_id as an exemplar
-// so you can jump from a P99 spike directly to the offending trace
-histogram.WithLabelValues("POST", "/orders").
-    Exemplar(prometheus.Labels{"trace_id": traceID}, duration)
+func (s *OrderService) Create(ctx context.Context, req CreateOrderRequest) (*Order, error) {
+    span := utils.StartSpan(ctx)
+    defer span.Finish()
+
+    order, err := s.repo.Insert(ctx, req.ToOrder())
+    if err != nil {
+        utils.RecordSpanError(span, err)
+        return nil, errors.Wrap(err, "inserting order")
+    }
+
+    return order, nil
+}
 ```
 
-## Migrating Legacy Loggers
+For outbound HTTP client spans, use `utils.StartReqClientSpan(ctx)`:
 
-If the project currently uses `zap`, `logrus`, or `zerolog`, migrate to `log/slog`. It is the standard library logger since Go 1.21, has a stable API, and the ecosystem has consolidated around it. Continuing with third-party loggers means maintaining an extra dependency for no benefit.
+```go
+func (c *Client) FetchUser(ctx context.Context, id string) (*User, error) {
+    span := utils.StartReqClientSpan(ctx)
+    defer span.Finish()
 
-**Migration strategy:**
+    // ... make HTTP request ...
+}
+```
 
-1. Add `slog` as the new logger with `slog.SetDefault()`
-2. Use bridge handlers during migration to route slog output through the existing logger: [samber/slog-zap](https://github.com/samber/slog-zap), [samber/slog-logrus](https://github.com/samber/slog-logrus), [samber/slog-zerolog](https://github.com/samber/slog-zerolog)
-3. Gradually replace all `zap.L().Info(...)` / `logrus.Info(...)` / `log.Info().Msg(...)` calls with `slog.Info(...)`
-4. Once fully migrated, remove the bridge handler and the old logger dependency
+For detailed span API, custom tags, and distributed tracing patterns see **[Tracing](./references/tracing.md)**.
+
+## Structured Logging with Datadog Correlation
+
+Use `utils.NewTracedSlogHandler` to create the slog handler. It produces JSON logs and automatically injects Datadog trace and span IDs so Datadog can correlate logs with traces:
+
+```go
+logger := slog.New(utils.NewTracedSlogHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
+}))
+slog.SetDefault(logger)
+```
+
+Always use context variants so trace IDs are injected:
+
+```go
+// ✗ Bad — no trace correlation
+slog.Error("query failed", "error", err)
+
+// ✓ Good — dd.trace_id and dd.span_id injected automatically
+slog.ErrorContext(ctx, "query failed", "error", err)
+```
+
+For log levels, structured fields, and common mistakes see **[Logging](./references/logging.md)**.
+
+## Traced Client Constructors
+
+Never use unwrapped clients — they produce silent gaps in your Datadog traces. Always use the `utils` constructors:
+
+| Client | Constructor |
+| --- | --- |
+| Echo HTTP router | `utils.NewTracedEchoRouter(e, cfg)` |
+| Outbound HTTP client | `utils.NewTracedHTTPClient(c)` |
+| PostgreSQL (`pgx`) | `utils.NewTracedDBConnection(dsn)` |
+| Redis / Valkey | `utils.NewTracedCacheConnection(url, caCertPath)` |
+| AWS SDK v2 | `utils.NewTracedAWS(ctx, optFns...)` |
+
+```go
+// Echo router
+e := echo.New()
+e = utils.NewTracedEchoRouter(e, utils.DefaultTracedEchoRouterConfig())
+
+// HTTP client
+httpClient := utils.NewTracedHTTPClient(&http.Client{Timeout: 10 * time.Second})
+
+// DB
+db, err := utils.NewTracedDBConnection(os.Getenv("DATABASE_URL"))
+
+// Redis
+cache, err := utils.NewTracedCacheConnection(os.Getenv("REDIS_URL"), "")
+
+// AWS
+awsCfg, err := utils.NewTracedAWS(ctx)
+```
+
+## Distributed Tracing Across Async Boundaries
+
+When passing work across a message queue, async job, or any boundary that breaks the Go context chain, serialize the current span before enqueuing and resume it on the other side:
+
+```go
+// Producer — serialize the current span into a string
+func (s *OrderService) Enqueue(ctx context.Context, order Order) error {
+    ddTrace := utils.MarshalSpan(ctx)
+
+    msg := Message{
+        Payload: order,
+        DDTrace: ddTrace, // carry the trace context with the message
+    }
+    return s.queue.Publish(msg)
+}
+
+// Consumer — resume the trace from the serialized string
+func (w *Worker) Process(msg Message) error {
+    span, ctx := utils.ResumeSpanFromTrace(context.Background(), msg.DDTrace)
+    defer span.Finish()
+
+    // all spans created from ctx are children of the original trace
+    return w.orderService.Fulfill(ctx, msg.Payload)
+}
+```
 
 ## Definition of Done for Observability
 
-A feature is not production-ready until it is observable. Before marking a feature as done, verify:
+A feature is not production-ready until it is observable. Before marking a feature done, verify:
 
-- [ ] **Metrics declared** — counters for operations/errors, histograms for latencies, gauges for saturation. Each metric var has PromQL queries and alert rules as comments above its declaration.
-- [ ] **Logging is proper** — structured key-value pairs with `slog`, context variants used (`slog.InfoContext`), no PII in logs, errors MUST be either logged OR returned (NEVER both).
-- [ ] **Spans created** — every service method, DB query, and external API call has a span with relevant attributes, errors recorded with `span.RecordError()`.
-- [ ] **Dashboards and alerts exist** — the PromQL from your metric comments is wired into Grafana dashboards and Prometheus alerting rules. Check [awesome-prometheus-alerts](https://samber.github.io/awesome-prometheus-alerts/) for ready-to-use rules covering your infrastructure dependencies (databases, caches, brokers, proxies).
-- [ ] **RUM events tracked** — key business events tracked server-side (PostHog/Segment), identity key is `user_id` (not email), consent checked before tracking.
+- [ ] **Spans created** — every service method, DB query, and external API call creates a span with `utils.StartSpan(ctx)`
+- [ ] **Errors recorded** — all error paths call `utils.RecordSpanError(span, err)`
+- [ ] **Traced clients used** — no raw `sql.Open`, `redis.NewClient`, `http.Client`, or `aws.Config` without wrapping
+- [ ] **Logging uses context** — all `slog.*` calls use the `*Context(ctx, ...)` variant
+- [ ] **No PII in logs or span tags** — never log emails, passwords, SSNs, or tokens
+- [ ] **Errors either logged or returned, never both** — see `samber/cc-skills-golang@golang-error-handling`
 
 ## Common Mistakes
 
 ```go
-// ✗ Bad — log AND return (error gets logged multiple times up the chain)
+// ✗ Bad — span never finishes, never reaches Datadog
+span := utils.StartSpan(ctx)
+// ... forgot defer span.Finish()
+
+// ✓ Good
+span := utils.StartSpan(ctx)
+defer span.Finish()
+```
+
+```go
+// ✗ Bad — raw DB connection, no tracing
+db, err := sql.Open("pgx", dsn)
+
+// ✓ Good — traced connection
+db, err := utils.NewTracedDBConnection(dsn)
+```
+
+```go
+// ✗ Bad — log AND return (error gets logged twice up the chain)
 if err != nil {
-    slog.Error("query failed", "error", err)
-    return fmt.Errorf("query: %w", err)
+    slog.ErrorContext(ctx, "query failed", "error", err)
+    return errors.Wrap(err, "query")
 }
 
 // ✓ Good — return with context, log once at the top level
 if err != nil {
-    return fmt.Errorf("querying users: %w", err)
+    return errors.Wrap(err, "querying users")
 }
 ```
 
 ```go
-// ✗ Bad — high-cardinality label (unbounded user IDs)
-httpRequests.WithLabelValues(r.Method, r.URL.Path, userID).Inc()
+// ✗ Bad — context dropped, trace chain broken
+go func() {
+    result, err := s.db.QueryContext(context.Background(), "SELECT ...")
+}()
 
-// ✓ Good — bounded label values only
-httpRequests.WithLabelValues(r.Method, routePattern).Inc()
-```
-
-```go
-// ✗ Bad — not passing context (breaks trace propagation)
-result, err := db.Query("SELECT ...")
-
-// ✓ Good — context flows through, trace continues
-result, err := db.QueryContext(ctx, "SELECT ...")
-```
-
-```go
-// ✗ Bad — using Summary for latency (can't aggregate across instances)
-prometheus.NewSummary(prometheus.SummaryOpts{
-    Name:       "http_request_duration_seconds",
-    Objectives: map[float64]float64{0.99: 0.001},
-})
-
-// ✓ Good — use Histogram (aggregatable, supports histogram_quantile)
-prometheus.NewHistogram(prometheus.HistogramOpts{
-    Name:    "http_request_duration_seconds",
-    Buckets: prometheus.DefBuckets,
-})
+// ✓ Good — propagate ctx
+go func() {
+    result, err := s.db.QueryContext(ctx, "SELECT ...")
+}()
 ```

@@ -29,7 +29,7 @@ When starting a new project, **ask the developer** what software architecture th
 
 ## Dependency Injection: Ask Next
 
-After settling on the architecture, **ask the developer** which dependency injection approach they want: manual constructor injection, or a DI library (samber/do, google/wire, uber-go/dig+fx), or none at all. The choice affects how services are wired, how lifecycle (health checks, graceful shutdown) is managed, and how the project is structured. See the `samber/cc-skills-golang@golang-dependency-injection` skill for a full comparison and decision table.
+After settling on the architecture, **ask the developer** which dependency injection approach they want: manual constructor injection, or a DI library (google/wire, uber-go/dig+fx), or none at all. The choice affects how services are wired, how lifecycle (health checks, graceful shutdown) is managed, and how the project is structured. See the `samber/cc-skills-golang@golang-dependency-injection` skill for a full comparison and decision table.
 
 ## 12-Factor App
 
@@ -91,7 +91,7 @@ For application configuration with Cobra + Viper, see [config reference](referen
 
 ## Tests, Benchmarks, and Examples
 
-Co-locate `_test.go` files with the code they test. Use `testdata/` for fixtures. See [testing layout](references/testing-layout.md) for file naming, placement, and organization details.
+Co-locate `_test.go` files with the code they test. Co-locate `_mock.go` files with the interface they mock (same package, `//go:build !mock` build tag). Use `testdata/` for fixtures. See [testing layout](references/testing-layout.md) for file naming, placement, and organization details.
 
 ## Go Workspaces
 

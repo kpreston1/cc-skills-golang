@@ -4,7 +4,7 @@
 
 ## Why Structured Logging
 
-Structured logs emit key-value pairs instead of freeform strings. Log management systems (Datadog, Grafana Loki, CloudWatch) can index, filter, and aggregate structured fields — something impossible with `log.Printf` output.
+Structured logs emit key-value pairs instead of freeform strings. Datadog Log Management can index, filter, and aggregate structured fields — something impossible with `log.Printf` output.
 
 ```go
 // ✗ Bad — freeform string, impossible to filter by user_id
@@ -15,24 +15,30 @@ slog.Error("user creation failed",
     "user_id", userID,
     "error", err,
 )
-// JSON output: {"time":"2025-01-15T10:30:00Z","level":"ERROR","msg":"user creation failed","user_id":"u-123","error":"connection refused"}
+// JSON output: {"time":"2025-01-15T10:30:00Z","level":"ERROR","msg":"user creation failed","user_id":"u-123","error":"connection refused","dd.trace_id":"...","dd.span_id":"..."}
 ```
 
 ## Handler Setup
 
+Use `NewTracedSlogHandler` from the shared `utils` package. It bridges `slog` to Datadog and automatically injects `dd.trace_id` and `dd.span_id` into every log record, correlating logs with APM traces.
+
 ```go
-// Production MUST use JSON — because plain-text multiline logs (eg. stack traces) would be split into separate records by log collectors
-logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+import "your-org/utils"
+
+// Production — JSON to stdout with Datadog trace correlation
+logger := slog.New(utils.NewTracedSlogHandler(os.Stdout, &slog.HandlerOptions{
     Level: slog.LevelInfo,
 }))
+slog.SetDefault(logger)
 
-// Development — human-readable text
+// Development — human-readable text (plain slog.TextHandler is fine without correlation)
 logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
     Level: slog.LevelDebug,
 }))
-
 slog.SetDefault(logger)
 ```
+
+`NewTracedSlogHandler` wraps the standard JSON handler with the `slogtrace` bridge from `gopkg.in/DataDog/dd-trace-go.v2`. When a span is active on the context, the bridge extracts `dd.trace_id`, `dd.span_id`, and `dd.service` and appends them to the log record. This links log lines to traces in the Datadog UI automatically.
 
 ## Log Levels
 
@@ -47,28 +53,27 @@ slog.Error("payment failed", "order_id", orderID, "error", err)
 
 ## Cost of Logging
 
-Logging is not free. Each log line costs CPU (serialization), I/O (disk/network), and money (log ingestion/storage in your aggregation platform). The cost scales with volume, which is directly controlled by log level.
+Logging is not free. Each log line costs CPU (serialization), I/O (disk/network), and money (Datadog log ingestion and indexing). The cost scales with volume, controlled directly by log level.
 
-- **Debug level in production** can generate millions of log lines per minute in a busy service, overwhelming your log pipeline and inflating costs by 10-100x
+- **Debug level in production** can generate millions of log lines per minute in a busy service, inflating Datadog costs by 10-100x
 - **Info level** is the typical production default — it provides enough visibility without excessive volume
-- Debug level SHOULD be disabled in production — use `slog.LevelInfo` in production and `slog.LevelDebug` only in development or when actively debugging a specific issue
-- For high-throughput services, consider [samber/slog-sampling](https://github.com/samber/slog-sampling) to sample verbose logs (e.g., emit 1 in 100 Debug logs) rather than dropping them entirely
+- Debug level MUST be disabled in production — use `slog.LevelInfo` in production and `slog.LevelDebug` only in development or when actively debugging a specific issue
 
 ## Logging with Context
 
-MUST use the `*Context` variants to correlate logs with the current trace. When an OpenTelemetry bridge is configured, trace_id and span_id are automatically injected into log records.
+MUST use the `*Context` variants. When `NewTracedSlogHandler` is configured, trace ID and span ID are automatically injected into every log record that passes through a context with an active span.
 
 ```go
-// ✗ Bad — no trace correlation
+// ✗ Bad — no trace correlation, log line cannot be linked to a Datadog trace
 slog.Error("query failed", "error", err)
 
-// ✓ Good — trace_id/span_id attached automatically when OTel bridge is active
+// ✓ Good — dd.trace_id/dd.span_id attached automatically
 slog.ErrorContext(ctx, "query failed", "error", err)
 ```
 
 ## Adding Request-Scoped Attributes
 
-Use `slog.With()` to create a child logger that includes attributes on every log line. Middleware can inject request-scoped fields so all downstream logs carry the same context.
+Use `slog.With()` to create a child logger that includes attributes on every line. Middleware can inject request-scoped fields so all downstream logs carry the same context.
 
 ```go
 func LoggingMiddleware(next http.Handler) http.Handler {
@@ -78,93 +83,10 @@ func LoggingMiddleware(next http.Handler) http.Handler {
             "method", r.Method,
             "path", r.URL.Path,
         )
-        // Store enriched logger in context for downstream use
         ctx := WithLogger(r.Context(), logger)
         next.ServeHTTP(w, r.WithContext(ctx))
     })
 }
-```
-
-## Log Sinks and the `slog` Ecosystem
-
-`slog` supports pluggable handlers. The Go community provides handlers for most log backends:
-
-**Standard library:**
-
-- `slog.JSONHandler` — JSON to stdout/stderr
-- `slog.TextHandler` — human-readable key=value
-
-**Log record handling:**
-
-- [samber/slog-multi](https://github.com/samber/slog-multi) — fan-out to multiple handlers, routing, failover
-- [samber/slog-sampling](https://github.com/samber/slog-sampling) — sample high-volume logs to reduce cost
-- [samber/slog-formatter](https://github.com/samber/slog-formatter) — format/transform log attributes
-
-**HTTP middleware:**
-
-- [samber/slog-http](https://github.com/samber/slog-http) — HTTP server middleware (net/http, chi, fiber, echo, gin)
-- [samber/slog-gin](https://github.com/samber/slog-gin) — Gin framework middleware
-- [samber/slog-echo](https://github.com/samber/slog-echo) — Echo framework middleware
-- [samber/slog-fiber](https://github.com/samber/slog-fiber) — Fiber framework middleware
-- [samber/slog-chi](https://github.com/samber/slog-chi) — Chi router middleware
-
-**Third-party log sinks** (see [go.dev/wiki/Resources-for-slog](https://go.dev/wiki/Resources-for-slog)):
-
-- [lmittmann/tint](https://github.com/lmittmann/tint) — colorized terminal output
-- [samber/slog-datadog](https://github.com/samber/slog-datadog) — send logs to Datadog
-- [samber/slog-sentry](https://github.com/samber/slog-sentry) — send errors to Sentry
-- [samber/slog-loki](https://github.com/samber/slog-loki) — send logs to Grafana Loki
-- [samber/slog-nats](https://github.com/samber/slog-nats) — send logs to NATS
-- [samber/slog-syslog](https://github.com/samber/slog-syslog) — send logs to syslog
-- [samber/slog-fluentd](https://github.com/samber/slog-fluentd) — send logs to Fluentd
-- [samber/slog-logrus](https://github.com/samber/slog-logrus) — bridge to Logrus
-- [samber/slog-zap](https://github.com/samber/slog-zap) — bridge to Zap
-- [samber/slog-zerolog](https://github.com/samber/slog-zerolog) — bridge to Zerolog
-- [samber/slog-slack](https://github.com/samber/slog-slack) — send critical logs to Slack
-
-## Migrating from zap / logrus / zerolog
-
-`log/slog` is the standard library logger since Go 1.21. If the project uses `zap`, `logrus`, or `zerolog`, migrate to `slog` — it has a stable API, broad ecosystem support, and eliminates an unnecessary dependency.
-
-**Step 1: Bridge** — route `slog` output through the existing logger so you can migrate call sites incrementally without changing log output:
-
-```go
-// Example: bridge slog → zap (same pattern for logrus/zerolog)
-import slogzap "github.com/samber/slog-zap/v2"
-
-zapLogger, _ := zap.NewProduction()
-slog.SetDefault(slog.New(
-    slogzap.Option{Level: slog.LevelInfo, Logger: zapLogger}.NewZapHandler(),
-))
-```
-
-Available bridges: [samber/slog-zap](https://github.com/samber/slog-zap), [samber/slog-logrus](https://github.com/samber/slog-logrus), [samber/slog-zerolog](https://github.com/samber/slog-zerolog)
-
-**Step 2: Replace call sites** — change all logger calls to `slog`:
-
-```go
-// zap → slog
-// Before: zap.L().Info("order created", zap.String("order_id", id))
-// After:
-slog.Info("order created", "order_id", id)
-
-// logrus → slog
-// Before: logrus.WithField("order_id", id).Info("order created")
-// After:
-slog.Info("order created", "order_id", id)
-
-// zerolog → slog
-// Before: log.Info().Str("order_id", id).Msg("order created")
-// After:
-slog.Info("order created", "order_id", id)
-```
-
-**Step 3: Remove the bridge** — once all call sites are migrated, replace the bridge handler with a native `slog` handler and remove the old logger dependency:
-
-```go
-slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-})))
 ```
 
 ## Common Logging Mistakes

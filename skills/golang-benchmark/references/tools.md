@@ -49,5 +49,5 @@ Configure via environment variables — no recompile needed.
 | Tool | What it adds | When to use |
 | --- | --- | --- |
 | **fgprof** (`github.com/felixge/fgprof`) | Full goroutine profiler — captures both on-CPU and off-CPU (I/O wait) time in a single profile. Standard pprof CPU profiles only show on-CPU time. | pprof CPU profile shows low CPU% but latency is high. |
-| **Pyroscope / Parca** | Continuous profiling platforms — aggregate pprof profiles over time, compare across deployments, detect regressions. | Production performance monitoring, historical trend analysis. → See `samber/cc-skills-golang@golang-observability` skill for setup. |
+| **Datadog Continuous Profiler** | Continuous profiling — aggregates pprof profiles over time, compares across deployments, detects regressions with flame graph diffs. | Production performance monitoring, historical trend analysis. → See `samber/cc-skills-golang@golang-observability` skill for setup. |
 | **Linux perf** (`perf record -g ./app && perf report`) | Hardware performance counters: cache misses, branch mispredictions, TLB misses. Requires `perf_data_converter` for pprof format. | CPU microarchitecture-level analysis when pprof isn't granular enough. |

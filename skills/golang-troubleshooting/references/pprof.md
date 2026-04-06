@@ -114,4 +114,4 @@ For production servers, replace `localhost:6060` with your server address and us
 
 ---
 
-→ See `samber/cc-skills-golang@golang-observability` skill for continuous profiling with Pyroscope. → See `samber/cc-skills-golang@golang-benchmark` skill for investigation session setup and Prometheus-based performance tracking.
+→ See `samber/cc-skills-golang@golang-observability` skill for continuous profiling with Datadog Continuous Profiler. → See `samber/cc-skills-golang@golang-benchmark` skill for investigation session setup and Datadog APM-based performance tracking.

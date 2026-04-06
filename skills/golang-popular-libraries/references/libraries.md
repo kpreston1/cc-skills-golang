@@ -104,8 +104,6 @@
 
 **Watermill** (<https://github.com/ThreeDotsLabs/watermill>) Event-driven framework for Go. Message streams, event sourcing, CQRS patterns.
 
-**ro** (<https://github.com/samber/ro>) Reactive programming for Go. Event-driven streams with operators for data flow transformation.
-
 ## Messaging
 
 **franz-go** (<https://github.com/twmb/franz-go>) Kafka client for Go. Modern, high-performance, feature-complete client with excellent documentation and community support.

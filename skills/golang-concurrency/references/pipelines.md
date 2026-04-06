@@ -213,25 +213,6 @@ Use goroutine+channel pipelines when:
 - You need true parallelism across CPU cores
 - Stages have different throughput characteristics
 
-### samber/ro
-
-`samber/ro` provides a fluent, type-safe pipeline API for read-only collections:
-
-```go
-import "github.com/samber/ro"
-
-emails, _ := ro.Collect( // ignore error
-    ro.Pipe(
-        ro.FromSlice(users),
-        ro.Filter(func(u User) bool { return u.Active }),
-        ro.Map(func(u User) string { return u.Email }),
-    ),
-)
-
-```
-
-Use `samber/ro` for sequential data transformations that benefit from a fluent API. It might also support parallel processing if needed.
-
 ## Goroutine Leak Detection
 
 Goroutine leaks SHOULD be detected with goleak in tests. Use `go.uber.org/goleak` in `TestMain` to catch leaked goroutines across all tests:

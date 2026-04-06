@@ -93,7 +93,7 @@ Before spawning a goroutine, answer:
 
 ## Pipelines and Worker Pools
 
-For pipeline patterns (fan-out/fan-in, bounded workers, generator chains, Go 1.23+ iterators, `samber/ro`), see [Pipelines and Worker Pools](references/pipelines.md).
+For pipeline patterns (fan-out/fan-in, bounded workers, generator chains, Go 1.23+ iterators), see [Pipelines and Worker Pools](references/pipelines.md).
 
 ## Parallelizing Concurrency Audits
 

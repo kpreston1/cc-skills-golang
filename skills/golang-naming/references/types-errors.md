@@ -2,53 +2,49 @@
 
 ## Interfaces
 
-### Single-Method Interfaces
-
-Name them with the **method name + `-er`** suffix:
+All interfaces MUST use the **`I` prefix** followed by a descriptive noun. This makes interfaces immediately identifiable at declaration and call sites, and avoids ambiguity when a struct and its interface share a concept name.
 
 ```go
-type Reader interface {
+// ✓ Good — I prefix, clear noun
+type ICache interface {
+    Get(key string) (any, bool)
+    Set(key string, value any)
+}
+
+type IRepository interface {
+    FindByID(ctx context.Context, id int64) (*User, error)
+    Save(ctx context.Context, u *User) error
+}
+
+type IReader interface {
     Read(p []byte) (n int, err error)
 }
 
-type Stringer interface {
-    String() string
-}
-
-type Closer interface {
-    Close() error
-}
+// ✗ Bad — no prefix, ambiguous at call site
+type Cache interface { ... }
+type Reader interface { ... }
 ```
 
-### Multi-Method Interfaces
-
-Use a descriptive **noun** or compose from single-method interfaces:
+The implementing struct uses the plain noun without the prefix:
 
 ```go
-type ReadWriteCloser interface {
-    Reader
-    Writer
-    Closer
-}
-
-type Handler interface {
-    ServeHTTP(ResponseWriter, *Request)
-}
+type Cache struct{ ... }        // implements ICache
+type RedisCache struct{ ... }   // also implements ICache
 ```
 
 ### Canonical Method Names
 
 Honor established Go method names and their signatures. If your type implements `Read`, it MUST match `io.Reader`'s signature. NEVER invent variations like `ReadData` or `ToString` — use `String`.
 
-| Method name | Expected interface |
-| ----------- | ------------------ |
-| `Read`      | `io.Reader`        |
-| `Write`     | `io.Writer`        |
-| `Close`     | `io.Closer`        |
-| `String`    | `fmt.Stringer`     |
-| `Error`     | `error`            |
-| `Len`       | `sort.Interface`   |
-| `ServeHTTP` | `http.Handler`     |
+| Method name | Expected stdlib interface |
+| ----------- | ------------------------- |
+| `Read`      | `io.Reader`               |
+| `Write`     | `io.Writer`               |
+| `Close`     | `io.Closer`               |
+| `String`    | `fmt.Stringer`            |
+| `Error`     | `error`                   |
+| `Len`       | `sort.Interface`          |
+| `ServeHTTP` | `http.Handler`            |
 
 ## Structs
 

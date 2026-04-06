@@ -31,31 +31,31 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(g
 
 Interfaces SHOULD have 1-3 methods. Small interfaces are easier to implement, mock, and compose. If you need a larger contract, compose it from small interfaces:
 
-→ See `samber/cc-skills-golang@golang-naming` skill for interface naming conventions (method + "-er" suffix, canonical names)
+→ See `samber/cc-skills-golang@golang-naming` skill for interface naming conventions (`I`-prefix convention)
 
 ```go
-type Reader interface {
+type IReader interface {
     Read(p []byte) (n int, err error)
 }
 
-type Writer interface {
+type IWriter interface {
     Write(p []byte) (n int, err error)
 }
 
 // Composed from small interfaces
-type ReadWriter interface {
-    Reader
-    Writer
+type IReadWriter interface {
+    IReader
+    IWriter
 }
 ```
 
 Compose larger interfaces from smaller ones:
 
 ```go
-type ReadWriteCloser interface {
-    io.Reader
-    io.Writer
-    io.Closer
+type IReadWriteCloser interface {
+    IReader
+    IWriter
+    ICloser
 }
 ```
 
@@ -67,16 +67,16 @@ Interfaces MUST be defined where consumed, not where implemented. This keeps the
 
 ```go
 // package notification — defines only what it needs
-type Sender interface {
+type ISender interface {
     Send(to, body string) error
 }
 
 type Service struct {
-    sender Sender
+    sender ISender
 }
 ```
 
-The `email` package exports a concrete `Client` struct — it doesn't need to know about `Sender`.
+The `email` package exports a concrete `Client` struct — it doesn't need to know about `ISender`.
 
 ### Accept Interfaces, Return Structs
 
@@ -84,10 +84,10 @@ Functions SHOULD accept interface parameters for flexibility and return concrete
 
 ```go
 // Good — accepts interface, returns concrete
-func NewService(store UserStore) *Service { ... }
+func NewService(store IUserStore) *Service { ... }
 
 // BAD — NEVER return interfaces from constructors
-func NewService(store UserStore) ServiceInterface { ... }
+func NewService(store IUserStore) IService { ... }
 ```
 
 ### Don't Create Interfaces Prematurely
@@ -98,7 +98,7 @@ NEVER create interfaces prematurely — wait for 2+ implementations or a testabi
 
 ```go
 // Bad — premature interface with a single implementation
-type UserRepository interface {
+type IUserRepository interface {
     FindByID(ctx context.Context, id string) (*User, error)
 }
 type userRepository struct { db *sql.DB }
@@ -165,7 +165,7 @@ Canonical method signatures MUST be honored — if your type has a `String()` me
 Verify a type implements an interface at compile time with a blank identifier assignment. Place it near the type definition:
 
 ```go
-var _ io.ReadWriter = (*MyBuffer)(nil)
+var _ IReadWriter = (*MyBuffer)(nil)
 ```
 
 This costs nothing at runtime. If `MyBuffer` ever stops satisfying `io.ReadWriter`, the build fails immediately.
@@ -213,7 +213,7 @@ type Flusher interface {
     Flush() error
 }
 
-func writeData(w io.Writer, data []byte) error {
+func writeData(w IWriter, data []byte) error {
     if _, err := w.Write(data); err != nil {
         return err
     }
@@ -258,9 +258,9 @@ The receiver of promoted methods is the _inner_ type, not the outer. The outer t
 | **Named field** | You only need the inner type internally — the outer type "has a" dependency |
 
 ```go
-// Embed — Server exposes all http.Handler methods
+// Embed — Server exposes all IHandler methods
 type Server struct {
-    http.Handler
+    IHandler
 }
 
 // Named field — Server uses the store but doesn't expose its methods
@@ -274,15 +274,15 @@ type Server struct {
 Accept dependencies as interfaces in constructors. This decouples components and makes testing straightforward:
 
 ```go
-type UserStore interface {
+type IUserStore interface {
     FindByID(ctx context.Context, id string) (*User, error)
 }
 
 type UserService struct {
-    store UserStore
+    store IUserStore
 }
 
-func NewUserService(store UserStore) *UserService {
+func NewUserService(store IUserStore) *UserService {
     return &UserService{store: store}
 }
 ```
@@ -360,7 +360,7 @@ func process(pool ConnPool) { ... }
 
 ## Cross-References
 
-- → See `samber/cc-skills-golang@golang-naming` skill for interface naming conventions (Reader, Closer, Stringer)
+- → See `samber/cc-skills-golang@golang-naming` skill for interface naming conventions (`I`-prefix: `ICache`, `IRepository`)
 - → See `samber/cc-skills-golang@golang-design-patterns` skill for functional options, constructors, and builder patterns
 - → See `samber/cc-skills-golang@golang-dependency-injection` skill for DI patterns using interfaces
 - → See `samber/cc-skills-golang@golang-code-style` skill for value vs pointer function parameters (distinct from receivers)
@@ -376,7 +376,7 @@ func process(pool ConnPool) { ... }
 | Embedding when you only need a few methods | Use a named field and delegate explicitly |
 | Missing field tags on serialized structs | Tag all exported fields in marshaled types |
 | Mixing pointer and value receivers on a type | Pick one and be consistent |
-| Forgetting compile-time interface check | Add `var _ Interface = (*Type)(nil)` |
+| Forgetting compile-time interface check | Add `var _ IInterface = (*Type)(nil)` |
 | Using `ToString()` instead of `String()` | Honor canonical method names |
 | Premature interface with a single implementation | Start concrete, extract interface when needed |
 | Nil map/slice in zero value struct | Use lazy initialization in methods |

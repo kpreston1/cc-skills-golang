@@ -640,20 +640,6 @@
     ]
   },
   {
-    "id": 48,
-    "name": "investigation-session-setup",
-    "description": "Tests the structured approach to production performance investigation sessions",
-    "prompt": "I need to do a deep-dive performance investigation on one instance of my Go service in production. What should I set up before I start collecting profiles?",
-    "trap": "Without the skill, the model may jump straight to pprof without the investigation session preparation",
-    "assertions": [
-      {"id": "48.1", "text": "Recommends reducing Prometheus scrape interval to <=10s on the target instance"},
-      {"id": "48.2", "text": "Recommends enabling pprof via environment variable without recompile"},
-      {"id": "48.3", "text": "Recommends enabling continuous profiling on only the target instance, not fleet-wide"},
-      {"id": "48.4", "text": "Emphasizes reverting all changes after investigation"},
-      {"id": "48.5", "text": "Mentions the key design principle: all debug features should be toggleable via environment variables"}
-    ]
-  },
-  {
     "id": 49,
     "name": "cost-warnings-trace-duration",
     "description": "Tests awareness of the cost and practical limits of execution traces",
