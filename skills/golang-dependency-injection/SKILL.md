@@ -36,8 +36,8 @@ For interface-based design foundations (accept interfaces, return structs), see 
 
 ## Best Practices Summary
 
-1. Dependencies MUST be injected via constructors — NEVER use global variables or `init()` for service setup
-2. Small projects (< 10 services) SHOULD use manual constructor injection — no library needed
+1. **Default to manual constructor injection** — it is the preferred approach unless you have a specific reason to adopt a library (see "When to Adopt a DI Library" below)
+2. Dependencies MUST be injected via constructors — NEVER use global variables or `init()` for service setup
 3. Interfaces MUST be defined where consumed, not where implemented — accept interfaces, return structs
 4. NEVER use global registries or package-level service locators
 5. The DI container MUST only exist at the composition root (`main()` or app startup) — NEVER pass the container as a dependency
@@ -45,7 +45,7 @@ For interface-based design foundations (accept interfaces, return structs), see 
 7. **Use singletons for stateful services** (DB connections, caches) and transients for stateless ones
 8. **Mock at the interface boundary** — DI makes this trivial
 9. **Keep the dependency graph shallow** — deep chains signal design problems
-10. **Choose the right DI library** for your project size and team — see the decision table below
+10. **Only adopt a DI library** when manual wiring becomes genuinely painful — see the decision table below
 
 ## Why Dependency Injection?
 
@@ -62,7 +62,7 @@ DI shines in applications with many interconnected services — HTTP servers, mi
 
 ## Manual Constructor Injection (No Library)
 
-For small projects, pass dependencies through constructors. See [Manual DI examples](./references/manual-di.md) for a complete application example.
+This is the **preferred approach** — default to it unless you have a specific reason to adopt a library. Pass dependencies through constructors. See [Manual DI examples](./references/manual-di.md) for a complete application example.
 
 ```go
 // ✓ Good — explicit dependencies, testable
@@ -209,11 +209,13 @@ func TestUserService_GetUser(t *testing.T) {
 
 ## When to Adopt a DI Library
 
+Manual constructor injection is the default. Reach for a library only when manual wiring becomes genuinely painful:
+
 | Signal | Action |
 | --- | --- |
-| < 10 services, simple dependencies | Stay with manual constructor injection |
-| 10-20 services, some cross-cutting concerns | Consider a DI library |
-| 20+ services, lifecycle management needed | Strongly recommended |
+| < 15 services, manageable dependencies | **Use manual constructor injection** (default) |
+| 15-20 services, some cross-cutting concerns | Consider a DI library — but manual is still viable |
+| 20+ services, lifecycle management needed | DI library strongly recommended |
 | Need health checks, graceful shutdown | Use a library with built-in lifecycle support |
 | Team unfamiliar with DI concepts | Start manual, migrate incrementally |
 
