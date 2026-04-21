@@ -617,14 +617,3 @@ ALWAYS use this exact template:
 - Empty words ("digital landscape", "incontournable")
 - Emoji abuse
 ```
-
-### Format 4: Numbered RFC-style Rules (MUST/MAY/SHOULD)
-
-```md
-## Git conventions
-
-1. Commits MUST be prefixed with a type
-2. The type `feat` MUST be used for new features
-3. A scope MAY be provided after a type, in parentheses
-4. A description MUST immediately follow the colon and space
-```
